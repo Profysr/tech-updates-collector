@@ -123,7 +123,12 @@ class YamlFileSource(PydanticBaseSettingsSource):
             doc = yaml.safe_load(text)
         except yaml.YAMLError as e:
             raise ConfigError(f"sources.yaml is not valid YAML: {e}") from e
-        self._data: dict[str, Any] = doc if isinstance(doc, dict) else {}
+        if not isinstance(doc, dict):
+            raise ConfigError(
+                f"sources.yaml at {path} must be a YAML mapping (key: value), "
+                f"got {type(doc).__name__}"
+            )
+        self._data: dict[str, Any] = doc
 
     def get_field_value(self, field, field_name):  # required abstract hook
         return self._data.get(field_name), field_name, False

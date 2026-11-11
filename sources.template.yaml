@@ -66,7 +66,9 @@ code:
     token_env: GITHUB_TOKEN           # OPTIONAL — 60/hr unauth, 5000 with PAT
   tracked_repos:
     kind: github_releases_issues_prs
-    repos: *watchlist_repos
+    repos: &watchlist_repos
+      - YOUR_ORG/your-repo-one          # ← REPLACE (release/issue/PR tracking)
+      - YOUR_ORG/your-repo-two
 
 # ── Group D. Adoption velocity ─────────────────────────────────────────
 adoption:
@@ -78,7 +80,9 @@ adoption:
   npm_downloads:
     kind: api
     endpoint: "https://api.npmjs.org/downloads/point/last-week/{pkg}"
-    packages: *watchlist_packages
+    packages: &watchlist_packages
+      - "your-npm-package-one"
+      - "your-npm-package-two"
   hf_trending:
     kind: api
     endpoint: "https://huggingface.co/api/trending?limit=20"
@@ -112,12 +116,8 @@ chatter:
 
 # ── Watchlist: REPLACE every entry below with your own ─────────────────
 watchlist:
-  repos: &watchlist_repos
-    - YOUR_ORG/your-repo-one          # ← REPLACE (release/issue/PR tracking)
-    - YOUR_ORG/your-repo-two
-  packages: &watchlist_packages      # npm registry names (npm collector)
-    - "your-npm-package-one"
-    - "your-npm-package-two"
+  repos: *watchlist_repos
+  packages: *watchlist_packages      # npm registry names (npm collector)
   keywords:
     - your-keyword-one               # ← REPLACE: agent-tick search terms
     - your-keyword-two

@@ -87,7 +87,19 @@ code:
     token_env: GITHUB_TOKEN             # optional; 60/hr unauth, 5000 with PAT
   tracked_repos:
     kind: github_releases_issues_prs
-    repos: *watchlist_repos
+    repos: &watchlist_repos
+      - anthropics/claude-code
+      - anthropics/skills
+      - vercel/ai
+      - openai/codex
+      - google-gemini/gemini-cli
+      - block/goose
+      - microsoft/autogen
+      - langchain-ai/langchain
+      - All-Hands-AI/OpenHands
+      - continuedev/continue
+      - sst/opencode
+      - lobehub/lobe-chat
   trendshift:                          # added 2026-10-21, amendment t_ca7fae3e — probe outcome
     kind: html_scrape
     url: "https://trendshift.io/"
@@ -111,7 +123,11 @@ adoption:
   npm_downloads:
     kind: api
     endpoint: "https://api.npmjs.org/downloads/point/last-week/{pkg}"
-    packages: *watchlist_packages
+    packages: &watchlist_packages
+      - "@modelcontextprotocol/sdk"
+      - "@anthropic-ai/claude-code"
+      - langchain
+      - openai
   hf_trending:
     kind: api
     endpoint: "https://huggingface.co/api/trending?limit=20"
@@ -162,24 +178,8 @@ chatter:
 
 # ── Watchlist: ~15 entities (errata §1.4), groups A–C ──────────────────
 watchlist:
-  repos: &watchlist_repos
-    - anthropics/claude-code
-    - anthropics/skills
-    - vercel/ai
-    - openai/codex
-    - google-gemini/gemini-cli
-    - block/goose
-    - microsoft/autogen
-    - langchain-ai/langchain
-    - All-Hands-AI/OpenHands
-    - continuedev/continue
-    - sst/opencode
-    - lobehub/lobe-chat
-  packages: &watchlist_packages      # npm registry names (npm collector)
-    - "@modelcontextprotocol/sdk"
-    - "@anthropic-ai/claude-code"
-    - langchain
-    - openai
+  repos: *watchlist_repos
+  packages: *watchlist_packages      # npm registry names (npm collector)
   keywords:
     - mcp
     - agent framework
