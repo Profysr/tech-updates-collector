@@ -10,6 +10,8 @@ blocked_probe_failed in sources.yaml and stays "unknown coverage".
 """
 import re
 
+from bs4 import BeautifulSoup
+
 from util import http_get, make_item
 
 HOME = "https://trendshift.io/"
@@ -18,11 +20,17 @@ HOME = "https://trendshift.io/"
 def collect() -> list[dict]:
     """Homepage leaderboard: repos in daily-trend order (deduped)."""
     html = http_get(HOME)
+    soup = BeautifulSoup(html, "html.parser")
     out: list[dict] = []
     seen: set[str] = set()
-    for m in re.finditer(r'github\.com/([A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+)', html):
-        repo = m.group(1).rstrip("/")
-        if repo in seen or repo.count("/") != 1 or repo.startswith(("features", "docs")):
+    for a in soup.select('a[href*="github.com/"]'):
+        href = (a.get("href") or "").split("github.com/", 1)[1]
+        path = href.split("?", 1)[0].split("#", 1)[0].strip("/")
+        parts = path.split("/")
+        repo = "/".join(parts[:2]) if len(parts) >= 2 and parts[0] and parts[1] else ""
+        if not repo:
+            continue
+        if repo in seen or repo.startswith(("features", "docs")):
             continue
         seen.add(repo)
         out.append(make_item("trendshift.repos", repo, f"https://github.com/{repo}",

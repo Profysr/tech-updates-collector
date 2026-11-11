@@ -4,6 +4,8 @@
 """
 import re
 
+from bs4 import BeautifulSoup
+
 import github as gh_module
 from github import Github, GithubException, RateLimitExceededException
 
@@ -89,14 +91,18 @@ def collect_awesome_lists(repos: list[str]) -> list[dict]:
 def collect_trending() -> list[dict]:
     """github.com/trending HTML scrape (trend-pulse/agents-radar pattern; <=2x/day)."""
     html = http_get("https://github.com/trending")
+    soup = BeautifulSoup(html, "html.parser")
     out = []
     seen: set[str] = set()
-    for m in re.finditer(r'href="/([\w.-]+/[\w.-]+)/stargazers"', html):
-        repo = m.group(1)
-        if repo in seen or repo.count("/") != 1:
+    for a in soup.select('a[href$="/stargazers"]'):
+        href = a.get("href") or ""
+        repo = href.lstrip("/").removesuffix("/stargazers")
+        if not repo or repo in seen or repo.count("/") != 1:
             continue
         seen.add(repo)
         out.append(make_item("github.trending", repo, f"https://github.com/{repo}"))
+    if not out:
+        raise ValueError("github trending: no rows parsed (layout changed?)")
     return out
 
 
@@ -108,13 +114,20 @@ def collect_trending_developers() -> list[dict]:
     link inside each article.
     """
     html = http_get("https://github.com/trending/developers")
-    arts = re.findall(r'<article class="Box-row d-flex" id="pa-([^"]+)">(.*?)</article>',
-                      html, re.S)
+    soup = BeautifulSoup(html, "html.parser")
+    arts = [a for a in soup.select("article.Box-row[id^=pa-]")]
     out = []
-    for rank, (login, body) in enumerate(arts, 1):
-        repo_m = re.search(r'href="/([\w.-]+/[\w.-]+)"', body)
-        text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", body)).strip()
-        repo = repo_m.group(1) if repo_m else ""
+    for rank, art in enumerate(arts, 1):
+        login = (art.get("id") or "")[3:]  # strip "pa-" prefix
+        repo = ""
+        for a in art.select("a[href]"):
+            href = a.get("href") or ""
+            parts = href.strip("/").split("/")
+            if len(parts) == 2 and all(parts) and parts[0] not in ("features", "topics", "trending"):
+                repo = "/".join(parts)
+                break
+        text = art.get_text(" ", strip=True)
+        text = " ".join(text.split())
         out.append(make_item(
             "github.trending_devs", f"{login}" + (f" · {repo}" if repo else ""),
             f"https://github.com/{login}",

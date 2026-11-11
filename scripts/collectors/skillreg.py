@@ -17,6 +17,8 @@ new entries = new skills surfacing.
 import re
 from pathlib import Path
 
+from bs4 import BeautifulSoup
+
 from util import http_get, make_item
 
 OFFICIAL_URL = "https://officialskills.sh"
@@ -49,11 +51,18 @@ def _write_snap(name: str, data: dict[str, str]) -> None:
 def collect_officialskills() -> list[dict]:
     """Group A: official agent-skill registry, snapshot-diff (keyless [V])."""
     html = http_get(OFFICIAL_URL)
-    paths = sorted(set(re.findall(r'href="(/[A-Za-z0-9_.\-]+/skills/[A-Za-z0-9_.\-]+)"', html)))
+    soup = BeautifulSoup(html, "html.parser")
+    _SKILL_HREF = re.compile(r"^/[A-Za-z0-9_.\-]+/skills/[A-Za-z0-9_.\-]+$")
+    paths = sorted({a.get("href") for a in soup.select("a[href]")
+                    if _SKILL_HREF.match(a.get("href") or "")})
     if not paths:
         raise ValueError("officialskills.sh: no skill hrefs parsed (layout changed?)")
-    m = re.search(r'Last Updated</span>\s*<span[^>]*>([^<]+)</span>', html)
-    last_updated = m.group(1).strip() if m else ""
+    last_updated = ""
+    label = soup.find("span", string=re.compile(r"Last Updated"))
+    if label:
+        nxt = label.find_next("span")
+        if nxt:
+            last_updated = nxt.get_text(strip=True)
 
     prev = _read_snap("officialskills.txt")
     new = [p for p in paths if p not in prev]
@@ -78,11 +87,13 @@ def collect_officialskills() -> list[dict]:
 
 
 def _parse_skillsh_rows(html: str) -> list[dict]:
-    rows = re.findall(r'<a class="group grid[^>]*href="(/[^"]+/skills/[^"]+)"[^>]*>(.*?)</a>',
-                      html, re.S)
+    soup = BeautifulSoup(html, "html.parser")
     out = []
-    for href, body in rows:
-        text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", body)).strip()
+    for a in soup.select('a[href*="/skills/"]'):
+        href = a.get("href") or ""
+        if not href.startswith("/") or href.count("/") < 3:
+            continue
+        text = " ".join(a.get_text(" ", strip=True).split())
         parts = text.split()
         if len(parts) < 3:
             continue
