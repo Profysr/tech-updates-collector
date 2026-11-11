@@ -9,14 +9,14 @@ Asks for:
   2. Source selection     (numbered picker over all 23 sources; recorded as
                           run.disable in sources.yaml)
   3. API keys             (only for SELECTED sources that need one — hidden
-                          input, stored in state/tokens/<NAME>; keyless works)
+                          input, stored via keyring; keyless works)
   4. Whether to probe all sources when done
 
 What it does:
   - scaffolds the data tree (init_store.py --root <root>, refuses overwrite)
   - copies sources.template.yaml -> sources.yaml (if absent) + records selection
   - writes scripts/store.config.json pointing at your data root
-  - writes state/tokens/<NAME> for each key you give (never stored anywhere else)
+  - stores tokens in the keyring (service 'tech-updates') — keyless works
 
 Non-interactive use:
   python setup.py --root ~/data --no-probe --sources 1,3-5 --token GITHUB_TOKEN=...
@@ -56,6 +56,16 @@ app = typer.Typer(add_completion=False, no_args_is_help=False,
                   context_settings={"help_option_names": ["-h", "--help"]})
 console = Console()
 err = Console(stderr=True)
+KEYRING_SERVICE = "tech-updates"
+
+
+def _token_exists(name: str) -> bool:
+    """Already stored in the keyring? (fail soft -> False -> will re-prompt)."""
+    try:
+        import keyring
+        return bool(keyring.get_password(KEYRING_SERVICE, name))
+    except Exception:
+        return False
 
 
 def ask(prompt: str, default: str = "") -> str:
@@ -133,15 +143,14 @@ def pick_sources(catalog: list[tuple[str, str, str]], sources: str | None) -> se
 
 
 def save_token(name: str, value: str) -> None:
-    tokdir = PKG / "state" / "tokens"
-    tokdir.mkdir(parents=True, exist_ok=True)
-    p = tokdir / name
-    p.write_text(value + "\n", encoding="utf-8")
     try:
-        os.chmod(p, 0o600)
-    except OSError:
-        pass  # non-POSIX fs: file still private to the user profile
-    console.print(f"— stored state/tokens/{name}")
+        import keyring
+        keyring.set_password(KEYRING_SERVICE, name, value)
+        console.print(f"— stored {name} in keyring ({keyring.get_keyring()})")
+    except Exception as e:  # noqa: BLE001 — never crash on a missing backend
+        err.print(f"[red]keyring store failed ({type(e).__name__}: {e}) —[/red]")
+        err.print("[red]token NOT saved. Set it in the environment or .env instead.[/red]")
+        raise typer.Exit(1)
 
 
 def write_disable(plate: Path, disabled: list[str]) -> None:
@@ -166,7 +175,7 @@ def run_probe() -> int:
 def main(
     root: Optional[Path] = typer.Option(None, "--root", help="data root (skip the prompt)"),
     token: List[str] = typer.Option([], "--token", metavar="NAME=VALUE",
-                                    help="API key for state/tokens/NAME (repeatable)"),
+                                    help="API key stored via keyring (repeatable)"),
     probe: Optional[bool] = typer.Option(None, "--probe/--no-probe",
                                          help="probe sources at the end (default: ask)"),
     sources: Optional[str] = typer.Option(None, "--sources",
@@ -272,8 +281,7 @@ def main(
         cfg.write_text(json.dumps(cfg_data, indent=2) + "\n", encoding="utf-8")
         console.print(f"— Wrote {cfg.relative_to(PKG)} -> {root_path}")
 
-    # 5. API keys for SELECTED sources -> state/tokens/<NAME> (what optional_token() reads)
-    tokdir = PKG / "state" / "tokens"
+    # 5. API keys for SELECTED sources -> keyring (what optional_token() reads)
     plate_data = config.load_sources(root_path)
     disabled = set((plate_data.get("run") or {}).get("disable") or [])
     selected_pairs = [(k, tok) for k, _, tok in catalog if k not in disabled]
@@ -287,7 +295,7 @@ def main(
         flags = dict(kv.split("=", 1) for kv in token if "=" in kv)
         missing = []
         for name in needed:
-            if os.environ.get(name) or (tokdir / name).exists():
+            if os.environ.get(name) or _token_exists(name):
                 console.print(f"— {name}: already set, skipping")
                 continue
             val = flags.get(name, "") or ("" if non_interactive else ask_secret(name))

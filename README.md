@@ -1,11 +1,13 @@
 # tech-updates — Early-Adoption Intelligence Collector (shareable package)
 
-A self-contained, stdlib-only collector pipeline that watches catalogs, launch
+A self-contained collector pipeline that watches catalogs, launch
 surfaces, code platforms, adoption feeds and chatter for a topic you care
 about, and writes human-readable markdown runs into a data root you control.
 
-Everything is Python 3 stdlib — no pip installs, no database, no secrets
-required to run (optional tokens only raise API rate limits).
+One dependency: `pyyaml` (parses sources.yaml) —
+`pip install -r requirements.txt`. Everything else is Python 3 stdlib:
+no database, no secrets required to run (optional tokens only raise API
+rate limits).
 
 ## Package contents
 
@@ -19,20 +21,26 @@ required to run (optional tokens only raise API rate limits).
 
 ## Setup (friend flow)
 
-One command:
+Install the one dependency, then run:
 
+    pip install -r requirements.txt
     python setup.py
 
 It asks for your data root, lets you pick which of the 23 sources to
 enable (recorded as `run.disable` in `sources.yaml`), prompts for API
-keys **only** those picked sources need (stored in gitignored
-`state/tokens/<NAME>`), scaffolds the data tree, creates `sources.yaml`
+keys **only** those picked sources need (stored via the OS keyring), scaffolds the data tree, creates `sources.yaml`
 from the template, and points the pipeline at your root — idempotent,
 safe to re-run, existing files never overwritten, missing keys
 re-prompted. Non-interactive:
 
     python setup.py --root <path> --no-probe --sources 1,3-5 \
         --token GITHUB_TOKEN=... --token PRODUCTHUNT_TOKEN=...
+
+Day-2 maintenance — these are one-shot and never re-run onboarding:
+
+    python setup.py --token PRODUCTHUNT_TOKEN=...   # store/replace a key
+    python setup.py --probe                         # health-check selected sources
+                                                    # (same: scripts/collect.py --probe)
 
 Manual equivalent (what setup.py automates), from a terminal inside
 this folder:
@@ -53,9 +61,10 @@ this folder:
        # optionally edit run.disable to skip sources you don't want
 
    `sources.example.yaml` shows a fully-populated plate you can borrow from.
-   Optional: put API keys in `state/tokens/GITHUB_TOKEN` /
-   `state/tokens/PRODUCTHUNT_TOKEN` (one file per key, `setup.py` writes
-   them) or export the env vars — everything also works keyless.
+   Optional API keys: export the env vars, keep them in the package's
+   `.env` file, or store them in the OS keyring (`setup.py --token
+   GITHUB_TOKEN=...` does that; lookup order is env -> keyring -> `.env`)
+   — everything also works keyless.
 
 3. Point the pipeline at your data root:
 

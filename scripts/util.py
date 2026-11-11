@@ -1,7 +1,8 @@
 """util.py — stdlib-only helpers: HTTP with retry, timestamps, logging.
 
-Rules (errata §4.3): tokens optional via env; failed source logs "unknown
-coverage", never "no news"; watermarks advance only on success.
+Rules (errata §4.3): tokens optional via env -> keyring -> .env (setup.py
+writes the latter two); failed source logs "unknown coverage", never "no
+news"; watermarks advance only on success.
 """
 from __future__ import annotations
 
@@ -58,19 +59,45 @@ def json_get(url: str, headers: dict | None = None) -> dict | list:
     return json.loads(http_get(url, headers))
 
 
-def optional_token(env_var: str) -> str | None:
-    """Token from env, else ``state/tokens/<NAME>`` file. Hermes' cron subprocess
-    env sanitizer strips credential env vars (GITHUB_TOKEN is Tier-1), so the
-    file is the reliable path when running under the gateway. Never required."""
-    val = os.environ.get(env_var, "").strip()
-    if val:
-        return val
-    f = Path(__file__).resolve().parent.parent / "state" / "tokens" / env_var
+# Keyring service name for all tech-updates tokens.
+KEYRING_SERVICE = "tech-updates"
+
+
+def _from_keyring(env_var: str) -> str:
+    """Token from the OS keyring (fail soft: any backend error -> '')."""
     try:
-        val = f.read_text(encoding="utf-8").strip()
-    except OSError:
-        return None
-    return val or None
+        import keyring
+        return (keyring.get_password(KEYRING_SERVICE, env_var) or "").strip()
+    except Exception:  # noqa: BLE001 — no backend / locked keyring: next source
+        return ""
+
+
+def _from_dotenv(env_var: str) -> str:
+    """Token from the package's ``.env`` file (fail soft: any error -> '')."""
+    try:
+        from dotenv import dotenv_values
+        env = dotenv_values(Path(__file__).resolve().parent.parent / ".env")
+        return (env.get(env_var) or "").strip()
+    except Exception:  # noqa: BLE001 — no python-dotenv / unreadable file
+        return ""
+
+
+def optional_token(env_var: str) -> str | None:
+    """Token lookup chain: environment variable -> keyring -> ``.env`` file.
+
+    Hermes' cron subprocess env sanitizer strips credential env vars
+    (GITHUB_TOKEN is Tier-1), so keyring/.env are the reliable paths under
+    the gateway. Every source may fail (headless host without a keyring
+    backend, missing .env) — never required, never crashes the run."""
+    for fetch in (os.environ.get(env_var, "").strip, lambda: _from_keyring(env_var),
+                  lambda: _from_dotenv(env_var)):
+        try:
+            val = fetch()
+        except Exception:  # noqa: BLE001 — lookup must never crash
+            val = ""
+        if val:
+            return val
+    return None
 
 
 def now_utc() -> str:
