@@ -1,30 +1,32 @@
-"""_lock.py — vendored cross-process advisory lock for the data root.
+"""_lock.py — cross-process advisory lock for the data root.
 
-Vendored (trimmed) from the hub's ``brain/lock.py`` module so the
-tech-trends pipeline no longer imports hub code. One lock for the whole
-data root: every writer calls ``store_lock()`` with the default name, so
-any two writes are serialised. Lock files live under ``<root>/.locks/``
-(gitignored, never inside the content tree). The lock is a byte range on
-a separate lock file, not on the target — atomic os.replace writes would
-not be protected by a lock on the old inode.
+Backed by the ``filelock`` package (cross-platform; replaces the old
+fcntl-based vendored flock polling, so it also works on Windows/macOS).
+One lock for the whole data root: every writer calls ``store_lock()``
+with the default name, so any two writes are serialised. Lock files live
+under ``<root>/.locks/`` (gitignored, never inside the content tree).
+The lock is on a separate lock file, not on the target — atomic
+os.replace writes would not be protected by a lock on the old inode.
 """
 from __future__ import annotations
 
-import fcntl  # stdlib, POSIX (this pipeline targets Linux hosts)
-import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
+from filelock import FileLock
+from filelock import Timeout as _Timeout
+
 from paths import data_root
 
-__all__ = ["file_lock", "store_lock"]
+__all__ = ["file_lock", "store_lock", "TimeoutError"]
 
 #: Default seconds to wait before giving up.
 DEFAULT_TIMEOUT = 10.0
 
-#: Seconds between attempts when the lock is held.
-POLL_INTERVAL = 0.05
+#: filelock.Timeout subclasses TimeoutError; alias it so callers that
+#: caught the old vendored TimeoutError keep working.
+TimeoutError = _Timeout
 
 
 def _locks_dir() -> Path:
@@ -35,27 +37,12 @@ def _locks_dir() -> Path:
 
 @contextmanager
 def file_lock(path: Path, timeout: float = DEFAULT_TIMEOUT) -> Iterator[None]:
-    """Hold an exclusive flock on *path* for the duration of the block."""
+    """Hold an exclusive lock on *path* for the duration of the block."""
     lock_path = Path(path)
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    handle = open(lock_path, "a+b")
-    try:
-        deadline = time.monotonic() + timeout
-        while True:
-            try:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except OSError:
-                if time.monotonic() >= deadline:
-                    raise TimeoutError(
-                        f"could not acquire lock on {lock_path} within {timeout}s")
-                time.sleep(POLL_INTERVAL)
-        try:
-            yield
-        finally:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-    finally:
-        handle.close()
+    lock = FileLock(str(lock_path), timeout=timeout)
+    with lock:
+        yield
 
 
 @contextmanager
