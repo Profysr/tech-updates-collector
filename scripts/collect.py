@@ -6,9 +6,10 @@ Usage:
     python collect.py --probe       # per-collector live check, no store writes
     python collect.py --list-sources # catalog for setup.py: key|plate|token rows
 
-Rules: stdlib only; store resolved relative to script; tokens optional via
-env or state/tokens/<NAME> (setup.py writes the latter); failed source logs
-"unknown coverage", never "no news"; watermarks advance only on success.
+Rules: pyyaml only (requirements.txt); store resolved relative to script;
+tokens optional via env or state/tokens/<NAME> (setup.py writes the latter);
+failed source logs "unknown coverage", never "no news"; watermarks advance
+only on success.
 """
 from __future__ import annotations
 
@@ -114,7 +115,7 @@ def main(argv: list[str]) -> int:
         # All-fail = broken config/network, not a quiet "everything fine".
         return 0 if any(r.ok for r in results) else 1
 
-    import store  # deferred: pulls POSIX fcntl via _lock; probe must run anywhere
+    import store  # deferred: pulls sqlite3; probe must run anywhere
 
     cursors = store.read_cursors()
     new_items: list[dict] = []

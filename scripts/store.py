@@ -3,7 +3,8 @@
 Store layout per tech-trends/README.md:
   runs/<date>-<time>.md          raw capture, one file per run, never edited after
   runs/sources/YYYY-MM-DD/<src>.md  deduped survivors with provenance
-  state/cursors.txt               key=value watermarks + seen item ids (git-diffable)
+  state/cursors.db                sqlite (WAL): watermarks + seen-IDs tables
+                                  (migrated once from legacy key=value cursors.txt)
   log.md                          run notes
 Watermarks advance only on success (errata §4.3).
 """
@@ -13,50 +14,119 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
+import sqlite3
+
 import _lock
 import _textio as textio
 import paths
 from util import item_key  # noqa: F401
 from util import store_root  # noqa: F401  (re-exported for collect.py)
 
-CURSORS = "state/cursors.txt"
+CURSORS = "state/cursors.db"  # legacy text file: state/cursors.txt (imported once)
+BUSY_TIMEOUT_MS = 30_000
 
 
 def cursors_path() -> Path:
     """Cursors are DURABLE pipeline state (seen-IDs prevent duplicate
     collection), so they live with the project code, not the data root:
-    <project>/state/cursors.txt"""
+    <project>/state/cursors.db (sqlite)."""
+    return paths.project_dir() / "state" / "cursors.db"
+
+
+def cursors_txt_path() -> Path:
     return paths.cursors_path()
 
 
-def read_cursors() -> dict[str, str]:
-    cur = {}
+def _connect() -> sqlite3.Connection:
+    """WAL + busy timeout: two simultaneous collectors take turns on the
+    writer lock instead of corrupting the store (sqlite handles it)."""
     p = cursors_path()
-    if p.exists():
-        for line in p.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            k, _, v = line.partition("=")
-            cur[k.strip()] = v.strip()
-    return cur
+    p.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(p, timeout=BUSY_TIMEOUT_MS / 1000)
+    conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS seen ("
+        " k TEXT PRIMARY KEY, ts TEXT NOT NULL)")
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS watermarks ("
+        " k TEXT PRIMARY KEY, ts TEXT NOT NULL)")
+    return conn
+
+
+def _migrate_txt(conn: sqlite3.Connection) -> None:
+    """One-time import of the legacy key=value cursors.txt.
+
+    Idempotent: only runs while BOTH sqlite tables are empty, so a partly
+    migrated store is never clobbered. The txt file is kept (never deleted)
+    so the import can always be re-derived. Never lose watermarks: every
+    wm.* line lands in the watermarks table verbatim.
+    """
+    txt = cursors_txt_path()
+    if not txt.exists():
+        return
+    have = (
+        conn.execute("SELECT COUNT(*) FROM watermarks").fetchone()[0]
+        + conn.execute("SELECT COUNT(*) FROM seen").fetchone()[0]
+    )
+    if have:
+        return
+    rows_wm, rows_seen = [], []
+    for line in txt.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, _, v = line.partition("=")
+        k, v = k.strip(), v.strip()
+        if not k or not v:
+            continue
+        if k.startswith("wm."):
+            rows_wm.append((k, v))
+        elif k.startswith("seen."):
+            rows_seen.append((k, v))
+    with conn:  # single transaction: all-or-nothing
+        conn.executemany(
+            "INSERT OR IGNORE INTO watermarks(k, ts) VALUES (?, ?)", rows_wm)
+        conn.executemany(
+            "INSERT OR IGNORE INTO seen(k, ts) VALUES (?, ?)", rows_seen)
+
+
+def read_cursors() -> dict[str, str]:
+    """All cursors as the legacy key=value dict (wm.* + seen.* keys) so the
+    collect.py call sites keep their semantics unchanged."""
+    conn = _connect()
+    try:
+        _migrate_txt(conn)
+        cur: dict[str, str] = {}
+        for k, ts in conn.execute("SELECT k, ts FROM watermarks"):
+            cur[k] = ts
+        for k, ts in conn.execute("SELECT k, ts FROM seen"):
+            cur[k] = ts
+        return cur
+    finally:
+        conn.close()
 
 
 def write_cursors(update: dict[str, str]) -> None:
-    """Merge *update* into the durable cursors file.
-
-    Read-merge-write, so it takes the hub lock. Without it, two collectors
-    running at once both read the cursors, both merged, both wrote -- and
-    the second write dropped the first one's watermark and seen-id
-    updates. A dropped seen-id means the same items get collected again.
-    """
-    with _lock.store_lock():
-        cur = read_cursors()
-        cur.update({k: v for k, v in update.items() if v is not None})
-        lines = ["# tech-trends watermarks / seen ids (key=value; advanced only on success)"]
-        for k in sorted(cur):
-            lines.append(f"{k}={cur[k]}")
-        textio.write_text(cursors_path(), "\n".join(lines) + "\n")  # type: ignore[attr-defined]  (vendored scripts/_io.py, not stdlib _io)
+    """Merge *update* into the sqlite store. No file lock needed: sqlite's
+    writer lock + WAL + busy_timeout serialize concurrent collectors."""
+    update = {k: v for k, v in update.items() if v is not None}
+    if not update:
+        return
+    conn = _connect()
+    try:
+        _migrate_txt(conn)
+        wm = [(k, v) for k, v in update.items() if k.startswith("wm.")]
+        seen = [(k, v) for k, v in update.items() if k.startswith("seen.")]
+        with conn:  # single transaction per write
+            conn.executemany(
+                "INSERT INTO watermarks(k, ts) VALUES (?, ?) "
+                "ON CONFLICT(k) DO UPDATE SET ts=excluded.ts", wm)
+            conn.executemany(
+                "INSERT INTO seen(k, ts) VALUES (?, ?) "
+                "ON CONFLICT(k) DO UPDATE SET ts=excluded.ts", seen)
+    finally:
+        conn.close()
 
 
 def seen_key(cursors: dict, source_key: str, item: dict) -> str:
@@ -119,7 +189,7 @@ def write_inbox(items: list[dict], coverage_lines: list[str]) -> Path:
             if it.get("extra"):
                 lines.append(f"  - {it['extra']}")
         lines.append("")
-        textio.write_text(path, "\n".join(lines))  # type: ignore[attr-defined]  (vendored scripts/_io.py, not stdlib _io)
+        textio.write_text(path, "\n".join(lines))
     return path
 
 
