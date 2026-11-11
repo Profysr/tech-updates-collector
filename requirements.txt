@@ -1,0 +1,13 @@
+pyyaml
+httpx
+filelock
+atomicwrites
+feedparser
+PyGithub
+beautifulsoup4
+pydantic-settings
+typer
+rich
+keyring
+python-dotenv
+

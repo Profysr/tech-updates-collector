@@ -9,10 +9,10 @@ import email.utils
 import json
 import os
 import time
-import urllib.error
-import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+
+import httpx
 
 USER_AGENT = "tech-trends-collector/0.1 (personal research; keyless)"
 DEFAULT_TIMEOUT = 30
@@ -29,23 +29,28 @@ def store_root() -> Path:
     return paths.data_root()
 
 
+# Shared, pooled client: connection reuse across retries/calls.
+_client = httpx.Client(
+    headers={"User-Agent": USER_AGENT},
+    timeout=httpx.Timeout(DEFAULT_TIMEOUT),
+    follow_redirects=True,
+)
+
+
 def http_get(url: str, headers: dict | None = None, timeout: int = DEFAULT_TIMEOUT,
              retries: int = 2, backoff: float = 2.0) -> str:
-    """GET with retry. Raises on final failure (caller turns it into a
-    coverage gap)."""
-    hdrs = {"User-Agent": USER_AGENT}
-    if headers:
-        hdrs.update(headers)
+    """GET with retry + exponential backoff. Raises on final failure (caller
+    turns it into a coverage gap)."""
     last_err: Exception | None = None
     for attempt in range(retries + 1):
         try:
-            req = urllib.request.Request(url, headers=hdrs)
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                return resp.read().decode("utf-8", errors="replace")
-        except (urllib.error.URLError, urllib.error.HTTPError, OSError, TimeoutError) as e:
+            resp = _client.get(url, headers=headers, timeout=timeout)
+            resp.raise_for_status()
+            return resp.text
+        except (httpx.HTTPError, OSError) as e:
             last_err = e
             if attempt < retries:
-                time.sleep(backoff * (attempt + 1))
+                time.sleep(backoff * (2 ** attempt))
     raise ConnectionError(f"GET {url} failed after {retries + 1} attempts: {last_err}")
 
 
