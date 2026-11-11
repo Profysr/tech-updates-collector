@@ -1,0 +1,193 @@
+# tech-trends/sources.yaml — frozen source plate (PLAN-REV3-ERRATA §2, approved 2026-10-20)
+# Groups A–F per errata §2. Free sources only; no paid APIs. X/Twitter excluded.
+# Every source is keyed; collectors read this file; group E is a filter config, not a feed.
+# Tokens (GITHUB_TOKEN, PRODUCTHUNT_TOKEN) are optional env vars; everything works keyless.
+
+run:
+  # cadence removed: schedules live in the cron jobs only (cutover 2026-11-10)
+  inbox_name: "%Y-%m-%d-%H%M"      # inbox/<date>-<time>.md
+
+# ── Group A. Catalogs & registries ─────────────────────────────────────
+catalogs:
+  awesomeclaudeplugins:
+    kind: snapshot_diff
+    urls:
+      - https://awesomeclaudeplugins.com
+    signal: new skills/plugins appearing
+  awesome_lists:
+    kind: github_api_diff
+    repos:
+      - anthropics/skills
+      - wshobson/agents
+      - hesreallyhim/awesome-claude-code
+    signal: new skills/plugins/tools at all
+  vscode_marketplace:
+    kind: gallery_api
+    endpoint: "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
+    flags: { keyless: true }
+  openvsx:
+    kind: rest_api
+    endpoint: "https://open-vsx.org/api/-/search?query=claude&size=20&sort=timestamp"
+    flags: { keyless: true }
+  officialskills:                      # added 2026-10-21, amendment t_ca7fae3e
+    kind: snapshot_diff
+    urls:
+      - https://officialskills.sh
+    signal: new official agent skills from vendor dev teams
+    pattern: snapshot-diff (agents-radar / awesomeclaudeplugins pattern; mined, not installed)
+    evidence: homepage exposes "Last Updated" stat + full skill list as
+      /<org>/skills/<name> hrefs (660 skills / 56 dev teams at probe time)
+    flags: { keyless: true, verified: "2026-10-21" }
+  mcp_registries:
+    kind: api_or_rss
+    urls:
+      - https://registry.modelcontextprotocol.io/v0/servers
+
+# ── Group B. Launch surfaces ───────────────────────────────────────────
+launches:
+  hn_algolia:
+    kind: api
+    endpoint: "https://hn.algolia.com/api/v1/search_by_date"
+    queries:
+      front_page: "tags=front_page"
+      show_hn: "tags=show_hn"
+    note: 10000 req/hr keyless [verified]
+  product_hunt:
+    kind: graphql
+    endpoint: "https://api.producthunt.com/v2/api/graphql"
+    token_env: PRODUCTHUNT_TOKEN  # value lives in profiles/research/.env — never inline a secret here
+    fallback: keyless-first (trend-pulse pattern; probe before relying)
+  yc_launches:
+    kind: algolia
+    endpoint: "https://ycsearch.startupschool.com/api/v1/companies"
+    note: YC directory Algolia; keyless
+  arxiv:
+    kind: api
+    endpoint: "http://export.arxiv.org/api/query"
+    categories: [cs.AI, cs.CL, cs.SE, cs.LG]
+    sort_by: submittedDate
+
+# ── Group C. Code platforms ────────────────────────────────────────────
+code:
+  github_trending:
+    kind: html_scrape
+    url: "https://github.com/trending"
+    cadence_limit: 2_per_day
+  github_trending_developers:          # added 2026-10-21, amendment t_ca7fae3e
+    kind: html_scrape
+    url: "https://github.com/trending/developers"
+    cadence_limit: 2_per_day
+    signal: which developers are behind today's hot repos
+    pattern: trend-pulse GitHub Trending scrape (mined, not installed)
+    flags: { keyless: true, verified: "2026-10-21" }
+  github_search_7d:
+    kind: api
+    endpoint: "https://api.github.com/search/repositories"
+    query: "topic:ai created:>={today-7d} sort:stars"
+    token_env: GITHUB_TOKEN             # optional; 60/hr unauth, 5000 with PAT
+  tracked_repos:
+    kind: github_releases_issues_prs
+    repos: *watchlist_repos
+  trendshift:                          # added 2026-10-21, amendment t_ca7fae3e — probe outcome
+    kind: html_scrape
+    url: "https://trendshift.io/"
+    signal: cross-platform repo momentum leaderboard (daily/weekly/monthly)
+    status: partially_blocked          # see below
+    blocked_probe_failed:              # evidence, probed 2026-10-21 (plain urllib, browser UA)
+      trendshift.io/repositories: "HTTP 404"
+      trendshift.io/repositories?language=all: "HTTP 404"
+      trendshift.io/rss / feed.xml / api/repositories: "HTTP 404"
+    working_path: homepage leaderboard is server-rendered HTML (repos + stars
+      in response body; Daily/Weekly/Monthly tabs present) — scraped instead
+    flags: { keyless: true }
+
+# ── Group D. Adoption velocity ─────────────────────────────────────────
+adoption:
+  pypi:
+    kind: rss
+    feeds:
+      newest: "https://pypi.org/rss/updates.xml"
+      packages: "https://pypi.org/rss/packages.xml"
+  npm_downloads:
+    kind: api
+    endpoint: "https://api.npmjs.org/downloads/point/last-week/{pkg}"
+    packages: *watchlist_packages
+  hf_trending:
+    kind: api
+    endpoint: "https://huggingface.co/api/trending?limit=20"
+    note: 500 calls/5-min anonymous [verified]
+  skillssh:                            # added 2026-10-21, amendment t_ca7fae3e
+    kind: html_scrape_diff
+    urls:
+      - "https://www.skills.sh/"       # all-time leaderboard
+      - "https://www.skills.sh/trending"
+      - "https://www.skills.sh/hot"
+    signal: skills leaderboard ranked by install count; install-count diffs on
+      tracked skills, new entries = new skills surfacing
+    flags: { keyless: true, verified: "2026-10-21" }
+
+# ── Group E. Quality gate (filter on candidates, not a feed) ───────────
+quality_gate:
+  staleness_max_days: 90               # no commit in 90d → stale
+  star_floor: 10                       # sanity: trivial repos excluded from "worth testing"
+  security:
+    osv_endpoint: "https://api.osv.dev/v1/query"   # keyless [verified]
+    red_flags: [install_scripts, curl_pipe_shell, credential_access]
+
+# ── Group F. Chatter & updates ─────────────────────────────────────────
+chatter:
+  reddit_rss:                          # RSS only — keyless *.json is blocked
+    feeds:
+      - "https://www.reddit.com/r/LocalLLaMA/.rss"
+      - "https://www.reddit.com/r/ClaudeAI/.rss"
+      - "https://www.reddit.com/r/MachineLearning/.rss"
+      - "https://www.reddit.com/r/programming/.rss"
+  devto:
+    kind: api
+    endpoint: "https://dev.to/api/articles?top=7"
+  lobsters:
+    kind: rss
+    feeds: ["https://lobste.rs/rss"]
+  # stackoverflow REMOVED 2026-10-21 (amendment, PLAN-REV3-ERRATA §2-A;
+  # historical provenance entries from before productization are append-only, kept).
+  vendor_rss:
+    feeds:
+      - "https://www.anthropic.com/rss.xml"
+      - "https://openai.com/blog/rss.xml"
+  kol_sweep:
+    kind: web_search                   # substitute for X/Twitter
+    when: agent_tick                   # LLM step, not collector
+  youtube_bluesky_mastodon_discord:
+    status: deferred_sources           # in scope by errata plate; no keyless path frozen yet
+
+# ── Watchlist: ~15 entities (errata §1.4), groups A–C ──────────────────
+watchlist:
+  repos: &watchlist_repos
+    - anthropics/claude-code
+    - anthropics/skills
+    - vercel/ai
+    - openai/codex
+    - google-gemini/gemini-cli
+    - block/goose
+    - microsoft/autogen
+    - langchain-ai/langchain
+    - All-Hands-AI/OpenHands
+    - continuedev/continue
+    - sst/opencode
+    - lobehub/lobe-chat
+  packages: &watchlist_packages      # npm registry names (npm collector)
+    - "@modelcontextprotocol/sdk"
+    - "@anthropic-ai/claude-code"
+    - langchain
+    - openai
+  keywords:
+    - mcp
+    - agent framework
+    - claude skill
+    - llm tooling
+
+# ── Group E gate config for collector output ───────────────────────────
+gate:
+  apply_to: [github_search_7d, tracked_repos]
+  reject_if: [stale_90d, star_below_floor, osv_advisory, install_script_risk]
+  on_reject: record_in_sources_with_gate_rejected_flag

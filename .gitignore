@@ -1,0 +1,7 @@
+# Machine-local / generated — never commit (see README "Privacy")
+state/
+.env
+sources.yaml
+scripts/store.config.json
+__pycache__/
+*.pyc

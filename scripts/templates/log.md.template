@@ -1,0 +1,11 @@
+# Tech Updates — Run Log (append-only)
+
+Format per entry:
+
+## YYYY-MM-DD HH:MM
+- run: <run filename or short id>
+- collectors: <ok>/<total> OK
+- notes: <anything unusual: failures, gaps, manual picks>
+
+Rules: append only. Never edit or delete past entries — corrections go in as
+new entries that reference the one they fix.

@@ -1,0 +1,8 @@
+{
+  "_comment": "Copy to store.config.json (beside sources.yaml) to override defaults. Every key is optional; delete a key to fall back to its default. store.config.json itself is gitignored; never commit it.",
+
+  "tech_updates_root": {
+    "_doc": "Data root for ALL pipeline output (runs/, runs/sources/, findings/, log.md, watchlist.md). Must point at an EXISTING directory when set. Overrides the default. The TECH_UPDATES_ROOT env var wins over this key.",
+    "default": "<project>/tech-updates (the project code folder's own tech-updates/ subdir)"
+  }
+}

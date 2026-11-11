@@ -1,0 +1,129 @@
+# sources.template.yaml — STARTER SOURCE PLATE for new installs
+# =====================================================================
+# This is an EXAMPLE configuration with clearly-marked placeholders.
+# It is NOT the production plate (see sources.example.yaml for the full
+# 23-source plate this product was validated against — use it as a
+# reference for kinds, flags and probe-verified endpoints).
+#
+# Setup: copy this file to `sources.yaml` (same directory), then edit the
+# YOUR_* placeholders to your own watchlist. All sources below are free /
+# keyless; token-env keys are OPTIONAL (everything works without them).
+# Never put secret values in this file — tokens live in the environment
+# (GITHUB_TOKEN, PRODUCTHUNT_TOKEN).
+#
+# Groups A–F mirror the validated plate; you can delete whole groups you
+# don't need. Group E is a filter config, not a feed.
+
+run:
+  inbox_name: "%Y-%m-%d-%H%M"        # one run file per collector run
+
+# ── Group A. Catalogs & registries ─────────────────────────────────────
+catalogs:
+  awesome_lists:
+    kind: github_api_diff
+    repos:
+      - YOUR_ORG/your-awesome-list    # ← REPLACE: repos to diff for new entries
+    signal: new tools/plugins appearing
+  vscode_marketplace:
+    kind: gallery_api
+    endpoint: "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
+    flags: { keyless: true }
+  mcp_registries:
+    kind: api_or_rss
+    urls:
+      - https://registry.modelcontextprotocol.io/v0/servers
+
+# ── Group B. Launch surfaces ───────────────────────────────────────────
+launches:
+  hn_algolia:
+    kind: api
+    endpoint: "https://hn.algolia.com/api/v1/search_by_date"
+    queries:
+      front_page: "tags=front_page"
+      show_hn: "tags=show_hn"
+    note: 10000 req/hr keyless
+  product_hunt:
+    kind: graphql
+    endpoint: "https://api.producthunt.com/v2/api/graphql"
+    token_env: PRODUCTHUNT_TOKEN      # OPTIONAL — leave unset to run keyless-first
+    fallback: keyless-first
+  arxiv:
+    kind: api
+    endpoint: "http://export.arxiv.org/api/query"
+    categories: [cs.AI, cs.CL, cs.SE, cs.LG]   # ← REPLACE: your arXiv categories
+    sort_by: submittedDate
+
+# ── Group C. Code platforms ────────────────────────────────────────────
+code:
+  github_trending:
+    kind: html_scrape
+    url: "https://github.com/trending"
+    cadence_limit: 2_per_day
+  github_search_7d:
+    kind: api
+    endpoint: "https://api.github.com/search/repositories"
+    query: "topic:YOUR_TOPIC created:>={today-7d} sort:stars"   # ← REPLACE topic
+    token_env: GITHUB_TOKEN           # OPTIONAL — 60/hr unauth, 5000 with PAT
+  tracked_repos:
+    kind: github_releases_issues_prs
+    repos: *watchlist_repos
+
+# ── Group D. Adoption velocity ─────────────────────────────────────────
+adoption:
+  pypi:
+    kind: rss
+    feeds:
+      newest: "https://pypi.org/rss/updates.xml"
+      packages: "https://pypi.org/rss/packages.xml"
+  npm_downloads:
+    kind: api
+    endpoint: "https://api.npmjs.org/downloads/point/last-week/{pkg}"
+    packages: *watchlist_packages
+  hf_trending:
+    kind: api
+    endpoint: "https://huggingface.co/api/trending?limit=20"
+    note: 500 calls/5-min anonymous
+
+# ── Group E. Quality gate (filter on candidates, not a feed) ───────────
+quality_gate:
+  staleness_max_days: 90              # no commit in 90d → stale
+  star_floor: 10                      # sanity: trivial repos excluded
+  security:
+    osv_endpoint: "https://api.osv.dev/v1/query"
+    red_flags: [install_scripts, curl_pipe_shell, credential_access]
+
+# ── Group F. Chatter & updates ─────────────────────────────────────────
+chatter:
+  reddit_rss:
+    feeds:
+      - "https://www.reddit.com/r/YOUR_SUBREDDIT/.rss"   # ← REPLACE
+  devto:
+    kind: api
+    endpoint: "https://dev.to/api/articles?top=7"
+  lobsters:
+    kind: rss
+    feeds: ["https://lobste.rs/rss"]
+  vendor_rss:
+    feeds:
+      - "https://www.anthropic.com/rss.xml"
+      - "https://openai.com/blog/rss.xml"
+  kol_sweep:
+    kind: web_search                  # LLM step, not collector
+
+# ── Watchlist: REPLACE every entry below with your own ─────────────────
+watchlist:
+  repos: &watchlist_repos
+    - YOUR_ORG/your-repo-one          # ← REPLACE (release/issue/PR tracking)
+    - YOUR_ORG/your-repo-two
+  packages: &watchlist_packages      # npm registry names (npm collector)
+    - "your-npm-package-one"
+    - "your-npm-package-two"
+  keywords:
+    - your-keyword-one               # ← REPLACE: agent-tick search terms
+    - your-keyword-two
+
+# ── Group E gate config for collector output ───────────────────────────
+gate:
+  apply_to: [github_search_7d, tracked_repos]
+  reject_if: [stale_90d, star_below_floor, osv_advisory, install_script_risk]
+  on_reject: record_in_sources_with_gate_rejected_flag

@@ -1,0 +1,22 @@
+# Tech Updates — Watchlist
+
+## Signals
+
+Short-lived items worth a look but not yet findings. One bullet each:
+`- <what> — <why it matters> (first seen: YYYY-MM-DD)`
+
+## Coverage gaps
+
+Topic areas that produced no signal for two or more consecutive runs:
+
+`- <area> — no signal since <YYYY-MM-DD> (runs: <n>)`
+
+## Next watch
+
+Deliberate follow-ups for the next run:
+
+`- <area/source/query to watch> — <what would count as a signal>`
+
+Rules: prune "Signals" into findings or drop them once stale; never delete
+"Coverage gaps" entries without either closing them (signal arrived) or
+noting why they were withdrawn.
