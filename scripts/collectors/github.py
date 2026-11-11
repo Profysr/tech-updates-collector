@@ -3,64 +3,86 @@
 60 req/hr unauth; optional GITHUB_TOKEN lifts to 5,000/hr [verified].
 """
 import re
-from util import http_get, json_get, make_item, optional_token
 
-API = "https://api.github.com"
+import github as gh_module
+from github import Github, GithubException, RateLimitExceededException
+
+from util import http_get, make_item, optional_token
+
+PER_PAGE_DEFAULT = 30
 
 
-def _headers() -> dict:
+def _client() -> Github:
+    """PyGithub client; optional_token("GITHUB_TOKEN") lifts rate limits.
+
+    Keyless works (60 req/hr); a token only raises the ceiling. Paginated
+    lists are lazy — they fetch more pages on demand and count against
+    the same rate limit.
+    """
     tok = optional_token("GITHUB_TOKEN")
-    h = {"Accept": "application/vnd.github+json"}
     if tok:
-        h["Authorization"] = f"Bearer {tok}"
-    return h
+        auth = gh_module.Auth.Token(tok)
+    else:
+        auth = None
+    return Github(auth=auth, per_page=PER_PAGE_DEFAULT,
+                  user_agent="tech-trends-collector/0.1 (personal research; keyless)")
 
 
 def collect_search_7d(days: int = 7, limit: int = 15) -> list[dict]:
     """New AI-topic repos from the last N days, by stars (agents-radar pattern)."""
     from datetime import datetime, timedelta, timezone
     since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
-    url = (f"{API}/search/repositories?q=topic:ai+created:>{since}"
-           f"&sort=stars&order=desc&per_page={limit}")
-    data = json_get(url, _headers())
-    return [make_item("github.search_7d", r["full_name"], r["html_url"],
-                      engagement=f"{r['stargazers_count']} stars",
-                      published=r.get("created_at", ""),
-                      extra=(r.get("description") or "")[:200])
-            for r in data.get("items", [])]
+    gh = _client()
+    results = gh.search_repositories(
+        query=f"topic:ai created:>{since}", sort="stars", order="desc")
+    out = []
+    for r in results[:limit]:
+        out.append(make_item("github.search_7d", r.full_name, r.html_url,
+                             engagement=f"{r.stargazers_count} stars",
+                             published=r.created_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+                                       if r.created_at else "",
+                             extra=(r.description or "")[:200]))
+    return out
 
 
 def collect_tracked_repos(repos: list[str], limit: int = 5) -> list[dict]:
     """Releases + engaged issues/PRs for each tracked repo."""
     out = []
+    gh = _client()
     for repo in repos:
-        rels = json_get(f"{API}/repos/{repo}/releases?per_page={limit}", _headers())
-        for rel in rels if isinstance(rels, list) else []:
-            out.append(make_item(f"github.releases.{repo}", rel.get("name") or rel.get("tag_name", ""),
-                                 rel.get("html_url", ""), engagement="release",
-                                 published=rel.get("published_at", "")))
-        issues = json_get(
-            f"{API}/repos/{repo}/issues?state=open&sort=comments&direction=desc&per_page={limit}",
-            _headers())
-        for it in issues if isinstance(issues, list) else []:
-            if "pull_request" in it:
+        gh_repo = gh.get_repo(repo)
+        for rel in gh_repo.get_releases()[:limit]:
+            out.append(make_item(
+                f"github.releases.{repo}",
+                rel.title or rel.tag_name or "",
+                rel.html_url or "",
+                engagement="release",
+                published=rel.published_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+                          if rel.published_at else ""))
+        for it in gh_repo.get_issues(
+                state="open", sort="comments", direction="desc")[:limit]:
+            if it.pull_request is not None:
                 continue
-            out.append(make_item(f"github.issues.{repo}", it.get("title", ""), it.get("html_url", ""),
-                                 engagement=f"{it.get('comments', 0)} comments",
-                                 published=it.get("created_at", "")))
+            out.append(make_item(f"github.issues.{repo}", it.title, it.html_url,
+                                 engagement=f"{it.comments} comments",
+                                 published=it.created_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+                                           if it.created_at else ""))
     return out
 
 
 def collect_awesome_lists(repos: list[str]) -> list[dict]:
     """Recent commits on awesome-* lists — new entries surfacing (API diff-watch)."""
     out = []
+    gh = _client()
     for repo in repos:
-        commits = json_get(f"{API}/repos/{repo}/commits?per_page=5", _headers())
-        for c in commits if isinstance(commits, list) else []:
+        for c in gh.get_repo(repo).get_commits()[:5]:
+            msg = c.commit.message or ""
+            author = c.commit.author
             out.append(make_item(f"github.awesome.{repo}",
-                                 (c.get("commit", {}).get("message") or "")[:150],
-                                 c.get("html_url", ""),
-                                 published=(c.get("commit", {}).get("author") or {}).get("date", "")))
+                                 msg[:150],
+                                 c.html_url or "",
+                                 published=author.date.strftime("%Y-%m-%dT%H:%M:%SZ")
+                                           if author and author.date else ""))
     return out
 
 
