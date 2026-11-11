@@ -1,45 +1,42 @@
-"""collectors/feeds.py — generic RSS/Atom reader (stdlib regex-based).
+"""collectors/feeds.py — generic RSS/Atom reader (feedparser).
 
-Patterns from the rss-feeds skill (stdlib reader). Used for Reddit RSS
-(RSS only — keyless *.json is blocked), vendor RSS, Lobsters, SO, PyPI.
+Used for Reddit RSS (RSS only — keyless *.json is blocked), vendor RSS,
+Lobsters, SO, PyPI.
 """
-import re
+import calendar
+
+import feedparser
+
 from util import http_get, make_item, rfc822_to_iso
 
-ENTRY_RE = re.compile(r"<item>(.*?)</item>|<entry>(.*?)</entry>", re.S | re.I)
 
-
-def _tag(block: str, tag: str) -> str:
-    m = re.search(rf"<{tag}[^>]*>(.*?)</{tag}>", block, re.S | re.I)
-    if not m:
+def _struct_to_iso(ts) -> str:
+    """time.struct_time from feedparser -> ISO 8601 UTC ('' if None)."""
+    from datetime import datetime, timezone
+    if not ts:
         return ""
-    text = re.sub(r"<!\[CDATA\[(.*?)\]\]>", r"\1", m.group(1), flags=re.S)
-    text = re.sub(r"<[^>]+>", " ", text)
-    return re.sub(r"\s+", " ", text).strip()
+    return datetime.fromtimestamp(calendar.timegm(ts), tz=timezone.utc).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
 
 
-def _link(block: str) -> str:
-    m = re.search(r"<link[^>]*href=[\"']([^\"']+)[\"']", block, re.I)
-    if m:
-        return m.group(1)
-    m = re.search(r"<link[^>]*>(.*?)</link>", block, re.S | re.I)
-    if m:
-        return re.sub(r"<!\[CDATA\[|\]\]>|<[^>]+>", "", m.group(1)).strip()
-    return ""
+def _entry_link(e) -> str:
+    for l in e.get("links", []):
+        if l.get("href") and l.get("rel", "alternate") == "alternate":
+            return l["href"]
+    return e.get("link") or e.get("id") or ""
 
 
 def parse_feed(xml: str) -> list[tuple[str, str, str]]:
     """-> [(title, link, published_iso)]"""
     out = []
-    for m in ENTRY_RE.finditer(xml):
-        block = m.group(1) or m.group(2) or ""
-        title = _tag(block, "title")
-        link = _link(block)
-        if not link:
-            m2 = re.search(r"<id[^>]*>(.*?)</id>", block, re.I)
-            link = re.sub(r"<!\[CDATA\[|\]\]>|<[^>]+>", "", m2.group(1)).strip() if m2 else ""
-        pub = _tag(block, "pubDate") or _tag(block, "published") or _tag(block, "updated")
-        out.append((title, link, rfc822_to_iso(pub)))
+    for e in feedparser.parse(xml).entries:
+        title = e.get("title", "")
+        link = _entry_link(e)
+        pub = _struct_to_iso(e.get("published_parsed") or e.get("updated_parsed"))
+        if not pub:
+            pub = rfc822_to_iso(e.get("published") or e.get("updated") or "")
+        out.append((title, link, pub))
     return out
 
 
