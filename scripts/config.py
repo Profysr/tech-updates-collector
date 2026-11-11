@@ -1,164 +1,149 @@
-"""config.py — minimal YAML-subset loader for sources.yaml (Python stdlib only).
+"""config.py — sources.yaml loader (pydantic-settings) + store.config.json reader.
 
-Supports the subset used by our frozen sources.yaml: nested mappings by
-indentation, "- item" lists, inline {k: v} dicts, quoted/unquoted scalars,
-comments, anchors (&name) and aliases (*name) on list lines, and bare
-`key: *alias` / `repos: *watchlist_repos` aliasing. This is deliberately a
-small bespoke parser, not a general YAML implementation.
+sources.yaml is real YAML (anchors/aliases included); pyyaml parses the text
+and pydantic-settings models validate the structure — every section (run,
+catalogs, launches, code, adoption, quality_gate, chatter, watchlist, gate)
+gets typed defaults, and a malformed file raises ConfigError naming the
+offending section/key instead of a KeyError or raw traceback. Read as
+utf-8-sig so a Windows-editor BOM can't poison the first key.
 """
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
+
+import yaml
+from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
 
 
-def _parse_scalar(s: str):
-    s = s.strip()
-    if s.startswith("[") and s.endswith("]"):
-        inner = s[1:-1].strip()
-        return [_parse_scalar(p) for p in inner.split(",")] if inner else []
-    if s.startswith("{") and s.endswith("}"):
-        out = {}
-        inner = s[1:-1].strip()
-        if inner:
-            for part in inner.split(","):
-                k, _, v = part.partition(":")
-                out[k.strip()] = _parse_scalar(v)
-        return out
-    if len(s) >= 2 and s[0] == s[-1] and s[0] in "\"'":
-        return s[1:-1]
-    return s
+class ConfigError(Exception):
+    """Raised when sources.yaml is missing, unparseable, or invalid."""
 
 
-def _strip_comment(line: str) -> str:
-    out, in_q = [], None
-    for ch in line:
-        if in_q:
-            out.append(ch)
-            if ch == in_q:
-                in_q = None
-        elif ch in "\"'":
-            in_q = ch
-            out.append(ch)
-        elif ch == "#":
-            break
-        else:
-            out.append(ch)
-    return "".join(out).rstrip()
+# ── leaf models ──────────────────────────────────────────────────────────
+class SourceEntry(BaseModel):
+    """One source under catalogs/launches/code/adoption/chatter.
+
+    Kinds vary per collector (api, rss, graphql, html_scrape, ...), so all
+    kind-specific fields are allowed through untouched and model_dump()
+    returns them exactly as written — collectors see the same dicts as
+    before, now shape-validated instead of raw.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    kind: str | None = None
+    endpoint: str | None = None
 
 
-def parse_yaml_subset(text: str) -> dict:
-    text = text.lstrip("\ufeff")  # Windows editors prepend a UTF-8 BOM
-    lines = []
-    for raw in text.splitlines():
-        stripped = _strip_comment(raw)
-        if not stripped.strip():
-            continue
-        if stripped.strip().startswith("#"):
-            continue
-        lines.append(stripped)
+class SecuritySection(BaseModel):
+    model_config = ConfigDict(extra="allow")
 
-    anchors: dict[str, object] = {}
+    osv_endpoint: str = "https://api.osv.dev/v1/query"
+    red_flags: list[str] = []
 
-    def parse_block(idx: int, indent: int):
-        # Detect whether this block is a list or a mapping.
-        first = lines[idx]
-        is_list = first.lstrip().startswith("- ")
-        if is_list:
-            items: list = []
-            while idx < len(lines):
-                line = lines[idx]
-                cur = len(line) - len(line.lstrip())
-                if cur < indent or not line.lstrip().startswith("- "):
-                    break
-                if cur > indent:
-                    break
-                content = line.lstrip()[2:].strip()
-                if content.startswith("&"):  # anchor definition on a list
-                    name, _, rest = content.partition(" ")
-                    idx += 1
-                    sub, idx = parse_block(idx, cur + 2)
-                    anchors[name[1:]] = sub
-                    items.append(sub)
-                    continue
-                if content.startswith("*"):  # alias
-                    name = content[1:].strip()
-                    items.append(anchors.get(name, name))
-                    idx += 1
-                    continue
-                if not content:  # list of blocks
-                    idx += 1
-                    sub, idx = parse_block(idx, cur + 2)
-                    items.append(sub)
-                    continue
-                if ":" in content and not content.startswith(("{", "[")):
-                    # inline single-pair mapping inside a list item
-                    k, _, v = content.partition(":")
-                    item = {k.strip(): _parse_scalar(v)}
-                    idx += 1
-                    if idx < len(lines):
-                        nxt = lines[idx]
-                        ncur = len(nxt) - len(nxt.lstrip())
-                        if ncur > cur:
-                            sub, idx = parse_block(idx, ncur)
-                            if isinstance(sub, dict):
-                                item.update(sub)
-                    items.append(item)
-                    continue
-                items.append(_parse_scalar(content))
-                idx += 1
-            return items, idx
 
-        # mapping
-        out: dict = {}
-        while idx < len(lines):
-            line = lines[idx]
-            cur = len(line) - len(line.lstrip())
-            if cur < indent:
-                break
-            if cur > indent:
-                idx += 1
-                continue
-            content = line.strip()
-            if ":" not in content:
-                idx += 1
-                continue
-            key, _, value = content.partition(":")
-            key = key.strip()
-            value = value.strip()
-            idx += 1
-            if value.startswith("&"):
-                name, _, rest = value.partition(" ")
-                sub, idx = parse_block(idx, cur + 2)
-                anchors[name[1:]] = sub
-                out[key] = sub
-                continue
-            if value.startswith("*"):
-                out[key] = anchors.get(value[1:].strip(), value[1:])
-                continue
-            if value:
-                out[key] = _parse_scalar(value)
-            else:
-                if idx < len(lines):
-                    nxt = lines[idx]
-                    ncur = len(nxt) - len(nxt.lstrip())
-                    if ncur > cur:
-                        sub, idx = parse_block(idx, ncur)
-                        out[key] = sub
-                    else:
-                        out[key] = None
-                else:
-                    out[key] = None
-        return out, idx
+class QualityGateSection(BaseModel):
+    model_config = ConfigDict(extra="allow")
 
-    doc, _ = parse_block(0, 0)
-    return doc if isinstance(doc, dict) else {}
+    staleness_max_days: int = 90
+    star_floor: int = 10
+    security: SecuritySection = SecuritySection()
+
+
+class RunSection(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    disable: list[str] = []
+    inbox_name: str = "%Y-%m-%d-%H%M"
+
+
+class WatchlistSection(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    repos: list[str] = []
+    packages: list[str] = []
+    keywords: list[str] = []
+
+
+class GateSection(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    apply_to: list[str] = []
+    reject_if: list[str] = []
+    on_reject: str | None = None
+
+
+class SourcesSettings(BaseSettings):
+    """Top-level sources.yaml document, loaded from the YAML file only."""
+
+    model_config = SettingsConfigDict(extra="ignore")
+
+    run: RunSection = RunSection()
+    catalogs: dict[str, SourceEntry] = {}
+    launches: dict[str, SourceEntry] = {}
+    code: dict[str, SourceEntry] = {}
+    adoption: dict[str, SourceEntry] = {}
+    quality_gate: QualityGateSection = QualityGateSection()
+    chatter: dict[str, SourceEntry] = {}
+    watchlist: WatchlistSection = WatchlistSection()
+    gate: GateSection = GateSection()
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        # sources.yaml is the single source of truth; no env/dotenv secrets.
+        return (YamlFileSource(settings_cls),)
+
+
+class YamlFileSource(PydanticBaseSettingsSource):
+    """Settings source that reads (and yaml-parses) the sources.yaml path."""
+
+    def __init__(self, settings_cls: type[BaseSettings], path: Path | None = None) -> None:
+        super().__init__(settings_cls)
+        if path is None:  # sources.yaml lives beside this package
+            path = Path(__file__).resolve().parent.parent / "sources.yaml"
+        self._path = path
+        try:
+            text = path.read_text(encoding="utf-8-sig")
+        except FileNotFoundError as e:
+            raise ConfigError(f"sources.yaml not found at {path}") from e
+        try:
+            doc = yaml.safe_load(text)
+        except yaml.YAMLError as e:
+            raise ConfigError(f"sources.yaml is not valid YAML: {e}") from e
+        self._data: dict[str, Any] = doc if isinstance(doc, dict) else {}
+
+    def get_field_value(self, field, field_name):  # required abstract hook
+        return self._data.get(field_name), field_name, False
+
+    def __call__(self) -> dict[str, Any]:
+        return self._data
 
 
 def load_sources(store_root: Path) -> dict:
     # sources.yaml is code/config: lives beside this package in the project
     # root (knowledge-base/projects/tech-trends/), NOT in the raw store.
     project_root = Path(__file__).resolve().parent.parent
-    return parse_yaml_subset((project_root / "sources.yaml").read_text(encoding="utf-8"))
+    path = project_root / "sources.yaml"
+    try:
+        settings = SourcesSettings()
+    except ValidationError as e:
+        raise ConfigError(
+            f"sources.yaml failed validation ({path}):\n{e}"
+        ) from e
+    return settings.model_dump()
 
 
 def load_store_config() -> dict:
