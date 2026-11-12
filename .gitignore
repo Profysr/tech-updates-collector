@@ -5,3 +5,6 @@ sources.yaml
 scripts/store.config.json
 __pycache__/
 *.pyc
+.venv/
+*.py[cod]
+*.log
