@@ -1,7 +1,7 @@
 """util.py — stdlib-only helpers: HTTP with retry, timestamps, logging.
 
 Rules (errata §4.3): tokens optional via env -> keyring -> .env (setup.py
-writes the latter two); failed source logs "unknown coverage", never "no
+writes .env); failed source logs "unknown coverage", never "no
 news"; watermarks advance only on success.
 """
 from __future__ import annotations

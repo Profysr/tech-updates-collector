@@ -9,14 +9,14 @@ Asks for:
   2. Source selection     (numbered picker over all 23 sources; recorded as
                           run.disable in sources.yaml)
   3. API keys             (only for SELECTED sources that need one — hidden
-                          input, stored via keyring; keyless works)
+                          input, written to .env; keyless works)
   4. Whether to probe all sources when done
 
 What it does:
   - scaffolds the data tree (init_store.py --root <root>, refuses overwrite)
   - copies sources.template.yaml -> sources.yaml (if absent) + records selection
   - writes scripts/store.config.json pointing at your data root
-  - stores tokens in the keyring (service 'tech-updates') — keyless works
+  - upserts tokens in .env and chmods it 600 (owner-only) — keyless works
 
 Non-interactive use:
   python setup.py --root ~/data --no-probe --sources 1,3-5 --token GITHUB_TOKEN=...
@@ -31,7 +31,6 @@ missing keys are re-prompted.
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -51,21 +50,12 @@ TEMPLATE = PKG / "sources.template.yaml"
 
 sys.path.insert(0, str(SCRIPTS))
 import config  # shared plate parser — same one collect.py uses
+import util    # token lookup chain: env -> keyring -> .env
 
 app = typer.Typer(add_completion=False, no_args_is_help=False,
                   context_settings={"help_option_names": ["-h", "--help"]})
 console = Console()
 err = Console(stderr=True)
-KEYRING_SERVICE = "tech-updates"  # duplicate: same value as util.KEYRING_SERVICE — keep one
-
-
-def _token_exists(name: str) -> bool:  # duplicate: keyring-only half of util.optional_token — no .env leg, so a .env-only key gets re-prompted here
-    """Already stored in the keyring? (fail soft -> False -> will re-prompt)."""
-    try:
-        import keyring
-        return bool(keyring.get_password(KEYRING_SERVICE, name))
-    except Exception:
-        return False
 
 
 def ask(prompt: str, default: str = "") -> str:
@@ -142,15 +132,23 @@ def pick_sources(catalog: list[tuple[str, str, str]], sources: str | None) -> se
             console.print(f"  [red]{e}[/red]")
 
 
-def save_token(name: str, value: str) -> None:
+def save_token(name: str, value: str) -> bool:
+    """Upsert NAME=VALUE in the package .env; False = not stored (caller warns).
+
+    .env is plain text by design (manual edits just work), so the file is
+    re-chmodded 600 on every write to keep it owner-only on shared boxes.
+    """
+    env_path = PKG / ".env"
     try:
-        import keyring
-        keyring.set_password(KEYRING_SERVICE, name, value)
-        console.print(f"— stored {name} in keyring ({keyring.get_keyring()})")
-    except Exception as e:  # noqa: BLE001 — never crash on a missing backend
-        err.print(f"[red]keyring store failed ({type(e).__name__}: {e}) —[/red]")
-        err.print("[red]token NOT saved. Set it in the environment or .env instead.[/red]")
-        raise typer.Exit(1)
+        from dotenv import set_key
+        set_key(str(env_path), name, value)  # creates the file if absent
+        env_path.chmod(0o600)  # owner-only; no-op-ish on Windows
+        console.print(f"— stored {name} in {env_path.name}")
+        return True
+    except Exception as e:  # noqa: BLE001 — a failed store must not abort onboarding
+        err.print(f"[red].env store failed ({type(e).__name__}: {e}) —[/red]")
+        err.print(f"[red]{name} NOT saved; add it to {env_path} manually.[/red]")
+        return False
 
 
 def write_disable(plate: Path, disabled: list[str]) -> None:
@@ -172,21 +170,22 @@ def run_probe() -> int:
 
 
 token_app = typer.Typer(add_completion=False,
-                        help="store (set) or read (get) API keys via keyring")
+                        help="store (set) or read (get) API keys via .env")
 
 
 @token_app.command("set")
 def token_set(
     pairs: List[str] = typer.Argument(..., metavar="NAME=VALUE...", help="key(s) to store/replace (repeatable)"),
 ) -> None:
-    """Store/replace one or more API keys in the OS keyring."""
+    """Store/replace one or more API keys in the package .env file."""
     bad = [p for p in pairs if "=" not in p]
     if bad:
         err.print(f"[red]token set wants NAME=VALUE, got: {bad[0]}[/red]")
         raise typer.Exit(2)
     for kv in pairs:
         name, _, val = kv.partition("=")
-        save_token(name.strip(), val)
+        if not save_token(name.strip(), val):
+            raise typer.Exit(1)
 
 
 @token_app.command("get")
@@ -207,7 +206,7 @@ def token_get(
 def main(
     root: Optional[Path] = typer.Option(None, "--root", help="data root (skip the prompt)"),
     token: List[str] = typer.Option([], "--token", metavar="NAME=VALUE",
-                                    help="API key stored via keyring (repeatable)"),
+                                    help="API key written to .env (repeatable)"),
     probe: Optional[bool] = typer.Option(None, "--probe/--no-probe",
                                          help="probe sources at the end (default: ask)"),
     sources: Optional[str] = typer.Option(None, "--sources",
@@ -225,7 +224,8 @@ def main(
         # duplicate: NAME=VALUE split + save_token also in `token set` (setup.py:185)
         for kv in token:
             name, _, val = kv.partition("=")
-            save_token(name, val)
+            if not save_token(name, val):
+                raise typer.Exit(1)
         if probe:
             if not (PKG / "sources.yaml").exists():
                 err.print("[red]sources.yaml missing — run `python setup.py` once first[/red]")
@@ -314,7 +314,7 @@ def main(
         cfg.write_text(json.dumps(cfg_data, indent=2) + "\n", encoding="utf-8")
         console.print(f"— Wrote {cfg.relative_to(PKG)} -> {root_path}")
 
-    # 5. API keys for SELECTED sources -> keyring (what optional_token() reads)
+    # 5. API keys for SELECTED sources -> .env (what optional_token() reads)
     plate_data = config.load_sources(root_path)
     disabled = set((plate_data.get("run") or {}).get("disable") or [])
     selected_pairs = [(k, tok) for k, _, tok in catalog if k not in disabled]
@@ -328,13 +328,11 @@ def main(
         flags = dict(kv.split("=", 1) for kv in token if "=" in kv)
         missing = []
         for name in needed:
-            if os.environ.get(name) or _token_exists(name):
+            if util.optional_token(name) is not None:
                 console.print(f"— {name}: already set, skipping")
                 continue
             val = flags.get(name, "") or ("" if non_interactive else ask_secret(name))
-            if val:
-                save_token(name, val)
-            else:
+            if not (val and save_token(name, val)):
                 missing.append(name)
         if missing:
             console.print(f"\n  [yellow]WARNING: no key for {', '.join(missing)} — those sources will[/yellow]")

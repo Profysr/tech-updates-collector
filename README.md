@@ -28,7 +28,7 @@ Install the one dependency, then run:
 
 It asks for your data root, lets you pick which of the 23 sources to
 enable (recorded as `run.disable` in `sources.yaml`), prompts for API
-keys **only** those picked sources need (stored via the OS keyring), scaffolds the data tree, creates `sources.yaml`
+keys **only** those picked sources need (stored in `.env`, kept mode 600), scaffolds the data tree, creates `sources.yaml`
 from the template, and points the pipeline at your root — idempotent,
 safe to re-run, existing files never overwritten, missing keys
 re-prompted. Non-interactive:
@@ -44,7 +44,7 @@ Day-2 maintenance — these are one-shot and never re-run onboarding:
 
 Token subcommands (same as the flat --token shortcut):
 
-    python setup.py token set GITHUB_TOKEN=ghp_...  # store/replace via keyring
+    python setup.py token set GITHUB_TOKEN=ghp_...  # store/replace in .env
     python setup.py token get GITHUB_TOKEN          # print the raw token
                                                     # (env -> keyring -> .env;
                                                     #  exit 1 + "not set" if absent)
@@ -68,10 +68,10 @@ this folder:
        # optionally edit run.disable to skip sources you don't want
 
    `sources.example.yaml` shows a fully-populated plate you can borrow from.
-   Optional API keys: export the env vars, keep them in the package's
-   `.env` file, or store them in the OS keyring (`setup.py --token
-   GITHUB_TOKEN=...` does that; lookup order is env -> keyring -> `.env`)
-   — everything also works keyless.
+   Optional API keys: export the env vars or keep them in the package's
+   `.env` file (owner-only: `chmod 600 .env`; `setup.py --token
+   GITHUB_TOKEN=...` writes it too; lookup order is env -> keyring ->
+   `.env`) — everything also works keyless.
 
 3. Point the pipeline at your data root:
 

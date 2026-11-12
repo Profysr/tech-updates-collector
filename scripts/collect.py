@@ -8,7 +8,7 @@ Usage:
     python collect.py --list-sources # catalog for setup.py: key|plate|token rows
 
 Rules: pyyaml only (requirements.txt); store resolved relative to script;
-tokens optional via env or keyring/.env (setup.py stores via keyring);
+tokens optional via env or keyring/.env (setup.py stores in .env);
 failed source logs "unknown coverage", never "no news"; watermarks advance
 only on success.
 """
