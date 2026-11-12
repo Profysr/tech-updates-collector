@@ -19,17 +19,6 @@ USER_AGENT = "tech-trends-collector/0.1 (personal research; keyless)"
 DEFAULT_TIMEOUT = 30
 
 
-def store_root() -> Path:
-    """Store root for RAW pipeline data (runs, sources, run log).
-
-    Resolved by ``paths.py`` (TECH_UPDATES_ROOT env -> store.config.json
-    -> default ``<project>/tech-updates``). Raw output is disposable
-    by-design; durable cursors stay in the project's ``state/``.
-    """
-    import paths
-    return paths.data_root()
-
-
 # Shared, pooled client: connection reuse across retries/calls.
 _client = httpx.Client(
     headers={"User-Agent": USER_AGENT},

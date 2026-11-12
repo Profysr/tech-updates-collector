@@ -45,11 +45,21 @@ def collect_search_7d(days: int = 7, limit: int = 15) -> list[dict]:
 
 
 def collect_tracked_repos(repos: list[str], limit: int = 5) -> list[dict]:
-    """Releases + engaged issues/PRs for each tracked repo."""
+    """Releases + engaged issues/PRs for each tracked repo.
+
+    A repo that 404s (placeholder, renamed, deleted) is skipped so the
+    remaining repos still report; rate-limit/network failures elsewhere
+    still propagate as 'unknown coverage'.
+    """
     out = []
     gh = _client()
+    dead: list[str] = []
     for repo in repos:
-        gh_repo = gh.get_repo(repo)
+        try:
+            gh_repo = gh.get_repo(repo)
+        except Exception:  # noqa: BLE001 — one bad repo must not kill the source
+            dead.append(repo)
+            continue
         for rel in gh_repo.get_releases()[:limit]:
             out.append(make_item(
                 f"github.releases.{repo}",
@@ -66,6 +76,9 @@ def collect_tracked_repos(repos: list[str], limit: int = 5) -> list[dict]:
                                  engagement=f"{it.comments} comments",
                                  published=it.created_at.strftime("%Y-%m-%dT%H:%M:%SZ")
                                            if it.created_at else ""))
+    if repos and len(dead) == len(repos):
+        raise ValueError(f"tracked_repos: every configured repo is unreachable "
+                         f"(placeholder or wrong?): {', '.join(dead)}")
     return out
 
 
