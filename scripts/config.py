@@ -122,7 +122,15 @@ class YamlFileSource(PydanticBaseSettingsSource):
         try:
             doc = yaml.safe_load(text)
         except yaml.YAMLError as e:
-            raise ConfigError(f"sources.yaml is not valid YAML: {e}") from e
+            mark = getattr(e, "problem_mark", None)
+            loc = (
+                f" (line {mark.line + 1}, column {mark.column + 1})"
+                if mark is not None
+                else ""
+            )
+            raise ConfigError(
+                f"sources.yaml at {path} is not valid YAML{loc}: {e}"
+            ) from e
         if not isinstance(doc, dict):
             raise ConfigError(
                 f"sources.yaml at {path} must be a YAML mapping (key: value), "
@@ -145,8 +153,13 @@ def load_sources(store_root: Path) -> dict:
     try:
         settings = SourcesSettings()
     except ValidationError as e:
+        parts = [
+            f"  {'.'.join(str(loc) for loc in err['loc']) or '<root>'}: {err['msg']}"
+            for err in e.errors()
+        ]
         raise ConfigError(
-            f"sources.yaml failed validation ({path}):\n{e}"
+            f"sources.yaml at {path} failed schema validation:\n"
+            + "\n".join(parts)
         ) from e
     return settings.model_dump()
 
