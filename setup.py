@@ -171,6 +171,39 @@ def run_probe() -> int:
     return subprocess.run([sys.executable, str(SCRIPTS / "collect.py"), "--probe"]).returncode
 
 
+token_app = typer.Typer(add_completion=False,
+                        help="store (set) or read (get) API keys via keyring")
+
+
+@token_app.command("set")
+def token_set(
+    pairs: List[str] = typer.Argument(..., metavar="NAME=VALUE...",
+                                      help="key(s) to store/replace (repeatable)"),
+) -> None:
+    """Store/replace one or more API keys in the OS keyring."""
+    bad = [p for p in pairs if "=" not in p]
+    if bad:
+        err.print(f"[red]token set wants NAME=VALUE, got: {bad[0]}[/red]")
+        raise typer.Exit(2)
+    for kv in pairs:
+        name, _, val = kv.partition("=")
+        save_token(name.strip(), val)
+
+
+@token_app.command("get")
+def token_get(
+    name: str = typer.Argument(..., help="token NAME (e.g. GITHUB_TOKEN)"),
+) -> None:
+    """Print the RAW token value (lookup chain: env -> keyring -> .env)."""
+    sys.path.insert(0, str(SCRIPTS))
+    import util
+    val = util.optional_token(name.strip())
+    if val is None:
+        err.print(f"[red]{name}: not set (checked env, keyring, .env)[/red]")
+        raise typer.Exit(1)
+    print(val)
+
+
 @app.command()
 def main(
     root: Optional[Path] = typer.Option(None, "--root", help="data root (skip the prompt)"),
@@ -328,5 +361,15 @@ def main(
     ))
 
 
+def run_cli() -> None:
+    # `token` sub-app gets its own dispatch: adding it to `app` would flip
+    # typer out of single-command mode and break `setup.py --root ...`.
+    if len(sys.argv) > 1 and sys.argv[1] == "token":
+        del sys.argv[1]  # token_app() parses sys.argv[1:] as its own args
+        token_app()
+    else:
+        app()
+
+
 if __name__ == "__main__":
-    app()
+    run_cli()

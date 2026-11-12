@@ -42,6 +42,13 @@ Day-2 maintenance — these are one-shot and never re-run onboarding:
     python setup.py --probe                         # health-check selected sources
                                                     # (same: scripts/collect.py --probe)
 
+Token subcommands (same as the flat --token shortcut):
+
+    python setup.py token set GITHUB_TOKEN=ghp_...  # store/replace via keyring
+    python setup.py token get GITHUB_TOKEN          # print the raw token
+                                                    # (env -> keyring -> .env;
+                                                    #  exit 1 + "not set" if absent)
+
 Manual equivalent (what setup.py automates), from a terminal inside
 this folder:
 
@@ -77,6 +84,15 @@ this folder:
 4. Probe all sources (no store writes — pure connectivity check):
 
        python scripts/collect.py --probe
+
+   Or the richer health report — one row per enabled source (status,
+   item count or reason, latency) plus an OK/unknown/failed summary:
+
+       python scripts/collect.py --health
+
+   Exits 0 only when no enabled source failed; a FAILED source and a
+   keyed source with no token ("UNKNOWN COVERAGE") both count as
+   failures, since unknown coverage is never "no news".
 
 5. First real run:
 

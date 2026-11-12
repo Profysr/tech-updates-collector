@@ -3,7 +3,8 @@
 
 Usage:
     python collect.py               # full run (all groups, keyed from sources.yaml)
-    python collect.py --probe       # per-collector live check, no store writes
+    python collect.py --probe        # per-collector live check, no store writes
+    python collect.py --health      # per-source health table, exit 1 on failure
     python collect.py --list-sources # catalog for setup.py: key|plate|token rows
 
 Rules: pyyaml only (requirements.txt); store resolved relative to script;
@@ -14,6 +15,7 @@ only on success.
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -61,6 +63,7 @@ def main(argv: list[str]) -> int:
         return 0
 
     probe_only = "--probe" in argv
+    health_only = "--health" in argv
     # Data root: TECH_UPDATES_ROOT env -> store.config.json -> <project>/tech-updates.
     root = util.store_root()  # delegates to paths.data_root()
     try:
@@ -109,7 +112,15 @@ def main(argv: list[str]) -> int:
     if not jobs:
         print("All sources disabled in run.disable — nothing to do.")
         return 0
-    results = [util.run_collector(fn, key) for key, fn in jobs]
+    results = []
+    for key, fn in jobs:
+        t0 = time.perf_counter()
+        res = util.run_collector(fn, key)
+        res.latency = time.perf_counter() - t0
+        results.append(res)
+
+    if health_only:
+        return _health_table(results)  # same probe path: no store writes
 
     coverage = [r.coverage_line() for r in results]
     for line in coverage:
@@ -145,6 +156,59 @@ def main(argv: list[str]) -> int:
     store.append_log(coverage, inbox_path, len(new_items))
     print(f"\nRun complete: {len(new_items)} new items -> {inbox_path.name}; {n} recorded in sources/.")
     return 0
+
+
+def _health_table(results) -> int:
+    """--health: rich table over the same probe results (no store writes).
+
+    Statuses: ITEMS (ok, >0 items), OK (ok, 0 items), UNKNOWN COVERAGE
+    (keyed source with no token in the chain — its coverage cannot be
+    verified), FAILED (collector error). FAILED and UNKNOWN COVERAGE both
+    count as failures: a source whose coverage is unknown is never 'no
+    news'. Exit 0 only when no enabled source failed.
+    """
+    from rich.console import Console
+    from rich.table import Table
+
+    token_for = {k: tok for k, _, tok in CATALOG}
+    color = {"OK": "green", "ITEMS": "green",
+             "UNKNOWN COVERAGE": "yellow", "FAILED": "red"}
+    rows = []
+    for r in results:
+        if r.ok:
+            need = token_for.get(r.source_key, "keyless")
+            if need != "keyless" and util.optional_token(need) is None:
+                status = "UNKNOWN COVERAGE"
+                detail = f"{need} not set — coverage cannot be verified"
+            elif r.items:
+                status = "ITEMS"
+                detail = f"{len(r.items)} items"
+            else:
+                status = "OK"
+                detail = "0 items"
+        else:
+            status = "FAILED"
+            detail = r.error or "unknown error"
+        lat = getattr(r, "latency", None)
+        rows.append((r.source_key, status, detail,
+                     f"{lat:.2f}s" if lat is not None else "-"))
+
+    table = Table(title="Source health")
+    table.add_column("source", style="cyan")
+    table.add_column("status")
+    table.add_column("detail")
+    table.add_column("latency", justify="right")
+    for key, status, detail, lat_s in rows:
+        c = color[status]
+        table.add_row(key, f"[{c}]{status}[/{c}]", detail, lat_s)
+    n_ok = sum(1 for _, s, _, _ in rows if s in ("OK", "ITEMS"))
+    n_unk = sum(1 for _, s, _, _ in rows if s == "UNKNOWN COVERAGE")
+    n_fail = sum(1 for _, s, _, _ in rows if s == "FAILED")
+    Console().print(table)
+    print(f"Summary: {n_ok} ok, {n_unk} unknown coverage, {n_fail} failed.")
+    print("Legend: FAILED and UNKNOWN COVERAGE both count as failures —")
+    print("a source whose coverage is unknown is never 'no news'.")
+    return 0 if (n_unk + n_fail) == 0 else 1
 
 
 def hn_front():
