@@ -22,7 +22,7 @@ PathLike = Union[str, "os.PathLike[str]", Path]
 __all__ = ["ENCODING", "NEWLINE", "PathLike", "read_text", "write_text"]
 
 
-def read_text(path: PathLike) -> str:
+def read_text(path: PathLike) -> str:  # unused: no callers (store.py only uses write_text)
     """Read a file as UTF-8, replacing undecodable bytes; strip a UTF-8 BOM."""
     data = Path(path).read_bytes()
     if data.startswith(b"\xef\xbb\xbf"):

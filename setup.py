@@ -41,7 +41,7 @@ from typing import List, Optional
 import typer
 from rich.console import Console
 from rich.panel import Panel
-from rich.prompt import Confirm, IntPrompt, Prompt
+from rich.prompt import Confirm, IntPrompt, Prompt  # unused: IntPrompt has no callers
 from rich.table import Table
 
 PKG = Path(__file__).resolve().parent
@@ -56,10 +56,10 @@ app = typer.Typer(add_completion=False, no_args_is_help=False,
                   context_settings={"help_option_names": ["-h", "--help"]})
 console = Console()
 err = Console(stderr=True)
-KEYRING_SERVICE = "tech-updates"
+KEYRING_SERVICE = "tech-updates"  # duplicate: same value as util.KEYRING_SERVICE — keep one
 
 
-def _token_exists(name: str) -> bool:
+def _token_exists(name: str) -> bool:  # duplicate: keyring-only half of util.optional_token — no .env leg, so a .env-only key gets re-prompted here
     """Already stored in the keyring? (fail soft -> False -> will re-prompt)."""
     try:
         import keyring
@@ -177,8 +177,7 @@ token_app = typer.Typer(add_completion=False,
 
 @token_app.command("set")
 def token_set(
-    pairs: List[str] = typer.Argument(..., metavar="NAME=VALUE...",
-                                      help="key(s) to store/replace (repeatable)"),
+    pairs: List[str] = typer.Argument(..., metavar="NAME=VALUE...", help="key(s) to store/replace (repeatable)"),
 ) -> None:
     """Store/replace one or more API keys in the OS keyring."""
     bad = [p for p in pairs if "=" not in p]
@@ -217,13 +216,13 @@ def main(
                                          help="fail instead of prompting (use with --root)"),
 ) -> None:
     """tech-updates onboarding."""
-    # Maintenance shortcuts: --token and/or --probe with no setup flags do only
-    # that and exit — never re-run onboarding. (--root/--sources still mean setup.)
+    # Maintenance shortcuts: --token and/or --probe with no setup flags do only that and exit — never re-run onboarding. (--root/--sources still mean setup.)
     if (token or probe is not None) and not (root or sources):
         bad = [t for t in token if "=" not in t]
         if bad:
             err.print(f"[red]--token wants NAME=VALUE, got: {bad[0]}[/red]")
             raise typer.Exit(2)
+        # duplicate: NAME=VALUE split + save_token also in `token set` (setup.py:185)
         for kv in token:
             name, _, val = kv.partition("=")
             save_token(name, val)
@@ -248,6 +247,7 @@ def main(
     root_path.mkdir(parents=True, exist_ok=True)
 
     # 2. Scaffold — skip when the tree is already complete (idempotent re-runs)
+    # duplicate: same target list as init_store.py DIRS/FILES — change both together
     targets = [root_path / d for d in ("runs", "runs/sources", "findings")] + [
         root_path / f for f in ("README.md", "log.md", "watchlist.md")
     ]
@@ -360,16 +360,13 @@ def main(
         title="Setup complete", border_style="green",
     ))
 
-
 def run_cli() -> None:
-    # `token` sub-app gets its own dispatch: adding it to `app` would flip
-    # typer out of single-command mode and break `setup.py --root ...`.
+    # `token` sub-app gets its own dispatch: adding it to `app` would flip typer out of single-command mode and break `setup.py --root ...`.
     if len(sys.argv) > 1 and sys.argv[1] == "token":
         del sys.argv[1]  # token_app() parses sys.argv[1:] as its own args
         token_app()
     else:
         app()
-
 
 if __name__ == "__main__":
     run_cli()

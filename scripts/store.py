@@ -25,7 +25,6 @@ from util import store_root  # noqa: F401  (re-exported for collect.py)
 CURSORS = "state/cursors.db"  # legacy text file: state/cursors.txt (imported once)
 BUSY_TIMEOUT_MS = 30_000
 
-
 def cursors_path() -> Path:
     """Cursors are DURABLE pipeline state (seen-IDs prevent duplicate
     collection), so they live with the project code, not the data root:
@@ -142,7 +141,7 @@ def filter_new(items: list[dict], cursors: dict, source_key: str) -> list[dict]:
     return out
 
 
-def record_seen(source_key: str, items: list[dict]) -> dict[str, str]:
+def record_seen(source_key: str, items: list[dict]) -> dict[str, str]:  # unused: no callers (collect.py builds seen_updates inline)
     return {seen_key(read_cursors(), source_key, it): it["fetched_at"] for it in items}
 
 

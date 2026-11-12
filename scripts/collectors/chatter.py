@@ -43,6 +43,7 @@ def collect_other(limit: int = 15) -> list[dict]:
     for key, url in OTHER_FEEDS.items():
         out += collect_rss(key, url, limit)
     data = json_get_devto(limit)
+    # duplicate: hand-rolled make_item — and fetched_at is "" (make_item stamps it)
     for a in data:
         out.append({
             "source": "devto.top7",
@@ -61,5 +62,5 @@ def json_get_devto(limit: int):
     return json_get(f"https://dev.to/api/articles?top=7&per_page={limit}")
 
 
-def reddit_search_feed(subreddit: str, query: str) -> str:
+def reddit_search_feed(subreddit: str, query: str) -> str:  # unused: no callers, and the subreddit arg is ignored anyway
     return f"https://www.reddit.com/search.rss?q={urllib.parse.quote(query)}&sort=new"

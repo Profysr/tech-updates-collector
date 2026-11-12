@@ -1,0 +1,14 @@
+Traceback (most recent call last):
+  File "Z:\.hermes\shared-memory\workspace\projects\tech-updates-product\package\scripts\collect.py", line 225, in <module>
+    raise SystemExit(main(sys.argv))
+                     ~~~~^^^^^^^^^^
+  File "Z:\.hermes\shared-memory\workspace\projects\tech-updates-product\package\scripts\collect.py", line 68, in main
+    root = util.store_root()  # delegates to paths.data_root()
+  File "\\100.96.42.11\ubuntu_share\.hermes\shared-memory\workspace\projects\tech-updates-product\package\scripts\util.py", line 30, in store_root
+    return paths.data_root()
+           ~~~~~~~~~~~~~~~^^
+  File "\\100.96.42.11\ubuntu_share\.hermes\shared-memory\workspace\projects\tech-updates-product\package\scripts\paths.py", line 41, in data_root
+    raise FileNotFoundError(
+        f"TECH_UPDATES_ROOT={env} does not exist — create it first")
+FileNotFoundError: TECH_UPDATES_ROOT=/c/Users/mprof/tech-updates-data-p2 does not exist — create it first
+EXIT:1

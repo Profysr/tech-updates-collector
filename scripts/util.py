@@ -19,7 +19,7 @@ USER_AGENT = "tech-trends-collector/0.1 (personal research; keyless)"
 DEFAULT_TIMEOUT = 30
 
 
-def store_root() -> Path:
+def store_root() -> Path:  # duplicate: pass-through over paths.data_root — call that directly
     """Store root for RAW pipeline data (runs, sources, run log).
 
     Resolved by ``paths.py`` (TECH_UPDATES_ROOT env -> store.config.json

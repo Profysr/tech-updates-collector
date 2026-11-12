@@ -26,7 +26,7 @@ DEFAULT_TIMEOUT = 10.0
 
 #: filelock.Timeout subclasses TimeoutError; alias it so callers that
 #: caught the old vendored TimeoutError keep working.
-TimeoutError = _Timeout
+TimeoutError = _Timeout  # unused: no caller catches this (the vendored flock it protected is gone)
 
 
 def _locks_dir() -> Path:

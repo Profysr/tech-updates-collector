@@ -13,6 +13,7 @@ def collect_vscode(search: str = "claude", limit: int = 10) -> list[dict]:
     body = json.dumps({"filters": [{"criteria": [{"filterType": 10, "value": search}],
                                     "pageNumber": 1, "pageSize": limit, "sortBy": 4}],
                        "flags": 914})
+    # duplicate: same urllib JSON POST as github.urllib_request_json
     req = urllib.request.Request(
         GALLERY, data=body.encode(),
         headers={"Content-Type": "application/json",

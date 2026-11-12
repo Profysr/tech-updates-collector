@@ -27,7 +27,7 @@ def _client() -> Github:
     else:
         auth = None
     return Github(auth=auth, per_page=PER_PAGE_DEFAULT,
-                  user_agent="tech-trends-collector/0.1 (personal research; keyless)")
+                  user_agent="tech-trends-collector/0.1 (personal research; keyless)")  # duplicate: same string as util.USER_AGENT
 
 
 def collect_search_7d(days: int = 7, limit: int = 15) -> list[dict]:
@@ -146,7 +146,7 @@ def collect_quality_gate_probe() -> list[dict]:
     return []
 
 
-def quality_gate_check(items: list[dict]) -> list[dict]:
+def quality_gate_check(items: list[dict]) -> list[dict]:  # unused: no callers — only collect_quality_gate_probe is wired into collect.py
     """Group E filter: flag package candidates with OSV advisories (best-effort,
     keyless). GitHub repo links are skipped (OSV indexes packages by
     ecosystem, not by GitHub org/name)."""

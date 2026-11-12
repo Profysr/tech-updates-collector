@@ -27,7 +27,6 @@ from pathlib import Path
 _CODE_DIR = Path(__file__).resolve().parent.parent
 _CONFIG_PATH = Path(__file__).resolve().parent / "store.config.json"
 
-
 def project_dir() -> Path:
     """The code folder (this package's parent): sources.yaml, state/, plans/."""
     return _CODE_DIR
@@ -57,6 +56,8 @@ def data_root() -> Path:
     return _CODE_DIR / "tech-updates"
 
 
+# unused: runs_dir/sources_dir/findings_dir/watchlist_path (just below) have no callers —
+# only log_path and cursors_path are used (store.py)
 def runs_dir() -> Path:
     return data_root() / "runs"
 
