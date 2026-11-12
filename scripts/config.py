@@ -145,7 +145,7 @@ class YamlFileSource(PydanticBaseSettingsSource):
         return self._data
 
 
-def load_sources(store_root: Path) -> dict:  # unused: store_root arg ignored (path recomputed below)
+def load_sources() -> dict:
     # sources.yaml is code/config: lives beside this package in the project
     # root (knowledge-base/projects/tech-trends/), NOT in the raw store.
     project_root = Path(__file__).resolve().parent.parent
@@ -162,17 +162,3 @@ def load_sources(store_root: Path) -> dict:  # unused: store_root arg ignored (p
             + "\n".join(parts)
         ) from e
     return settings.model_dump()
-
-
-def load_store_config() -> dict:  # unused: no callers — paths.data_root() reads store.config.json itself
-    """Read scripts/store.config.json (data-root overrides; see paths.py).
-
-    Returns {} when the file is absent (all defaults apply). Malformed
-    JSON raises — a typo must not silently reroute the data root.
-    """
-    cfg_path = Path(__file__).resolve().parent / "store.config.json"
-    if not cfg_path.exists():
-        return {}
-    import json
-    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
-    return cfg if isinstance(cfg, dict) else {}

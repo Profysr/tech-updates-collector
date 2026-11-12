@@ -1,25 +1,18 @@
 """collectors/marketplace.py — VS Code Marketplace gallery API + OpenVSX (keyless)."""
-import json
 import urllib.parse
-import urllib.request
 
-from util import json_get, make_item
+from util import json_get, make_item, post_json
 
 GALLERY = "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
 
 
 def collect_vscode(search: str = "claude", limit: int = 10) -> list[dict]:
     """VS Code Marketplace gallery API (keyless [verified])."""
-    body = json.dumps({"filters": [{"criteria": [{"filterType": 10, "value": search}],
-                                    "pageNumber": 1, "pageSize": limit, "sortBy": 4}],
-                       "flags": 914})
-    # duplicate: same urllib JSON POST as github.urllib_request_json
-    req = urllib.request.Request(
-        GALLERY, data=body.encode(),
-        headers={"Content-Type": "application/json",
-                 "Accept": "application/json;api-version=3.0-preview.1"})
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        data = json.loads(resp.read().decode())
+    payload = {"filters": [{"criteria": [{"filterType": 10, "value": search}],
+                            "pageNumber": 1, "pageSize": limit, "sortBy": 4}],
+               "flags": 914}
+    data = post_json(GALLERY, payload,
+                     {"Accept": "application/json;api-version=3.0-preview.1"})
     out = []
     for f in data.get("results", []):
         for ext in f.get("extensions", []):

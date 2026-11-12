@@ -56,24 +56,6 @@ def data_root() -> Path:
     return _CODE_DIR / "tech-updates"
 
 
-# unused: runs_dir/sources_dir/findings_dir/watchlist_path (just below) have no callers —
-# only log_path and cursors_path are used (store.py)
-def runs_dir() -> Path:
-    return data_root() / "runs"
-
-
-def sources_dir() -> Path:
-    return runs_dir() / "sources"
-
-
-def findings_dir() -> Path:
-    return data_root() / "findings"
-
-
-def watchlist_path() -> Path:
-    return data_root() / "watchlist.md"
-
-
 def log_path() -> Path:
     return data_root() / "log.md"
 

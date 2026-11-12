@@ -40,7 +40,7 @@ from typing import List, Optional
 import typer
 from rich.console import Console
 from rich.panel import Panel
-from rich.prompt import Confirm, IntPrompt, Prompt  # unused: IntPrompt has no callers
+from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
 PKG = Path(__file__).resolve().parent
@@ -49,8 +49,9 @@ INIT = SCRIPTS / "init_store.py"
 TEMPLATE = PKG / "sources.template.yaml"
 
 sys.path.insert(0, str(SCRIPTS))
-import config  # shared plate parser — same one collect.py uses
-import util    # token lookup chain: env -> keyring -> .env
+import config      # shared plate parser — same one collect.py uses
+import init_store  # DIRS/FILES: the one list of scaffold targets
+import util        # token lookup chain: env -> keyring -> .env
 
 app = typer.Typer(add_completion=False, no_args_is_help=False,
                   context_settings={"help_option_names": ["-h", "--help"]})
@@ -151,6 +152,18 @@ def save_token(name: str, value: str) -> bool:
         return False
 
 
+def save_tokens(pairs: list[str]) -> None:
+    """Store NAME=VALUE pairs in .env; exit 2 on a bad pair, 1 if a write fails."""
+    bad = [p for p in pairs if "=" not in p]
+    if bad:
+        err.print(f"[red]NAME=VALUE expected, got: {bad[0]}[/red]")
+        raise typer.Exit(2)
+    for kv in pairs:
+        name, _, val = kv.partition("=")
+        if not save_token(name.strip(), val):
+            raise typer.Exit(1)
+
+
 def write_disable(plate: Path, disabled: list[str]) -> None:
     # Fresh template copy only: insert under the run: block, keep every comment.
     lines = plate.read_text(encoding="utf-8-sig").splitlines(keepends=True)
@@ -178,14 +191,7 @@ def token_set(
     pairs: List[str] = typer.Argument(..., metavar="NAME=VALUE...", help="key(s) to store/replace (repeatable)"),
 ) -> None:
     """Store/replace one or more API keys in the package .env file."""
-    bad = [p for p in pairs if "=" not in p]
-    if bad:
-        err.print(f"[red]token set wants NAME=VALUE, got: {bad[0]}[/red]")
-        raise typer.Exit(2)
-    for kv in pairs:
-        name, _, val = kv.partition("=")
-        if not save_token(name.strip(), val):
-            raise typer.Exit(1)
+    save_tokens(pairs)
 
 
 @token_app.command("get")
@@ -217,15 +223,7 @@ def main(
     """tech-updates onboarding."""
     # Maintenance shortcuts: --token and/or --probe with no setup flags do only that and exit — never re-run onboarding. (--root/--sources still mean setup.)
     if (token or probe is not None) and not (root or sources):
-        bad = [t for t in token if "=" not in t]
-        if bad:
-            err.print(f"[red]--token wants NAME=VALUE, got: {bad[0]}[/red]")
-            raise typer.Exit(2)
-        # duplicate: NAME=VALUE split + save_token also in `token set` (setup.py:185)
-        for kv in token:
-            name, _, val = kv.partition("=")
-            if not save_token(name, val):
-                raise typer.Exit(1)
+        save_tokens(token)
         if probe:
             if not (PKG / "sources.yaml").exists():
                 err.print("[red]sources.yaml missing — run `python setup.py` once first[/red]")
@@ -247,9 +245,8 @@ def main(
     root_path.mkdir(parents=True, exist_ok=True)
 
     # 2. Scaffold — skip when the tree is already complete (idempotent re-runs)
-    # duplicate: same target list as init_store.py DIRS/FILES — change both together
-    targets = [root_path / d for d in ("runs", "runs/sources", "findings")] + [
-        root_path / f for f in ("README.md", "log.md", "watchlist.md")
+    targets = [root_path / d for d in init_store.DIRS] + [
+        root_path / f for f in init_store.FILES
     ]
     existing = [t for t in targets if t.exists()]
     if len(existing) == len(targets):
@@ -315,7 +312,7 @@ def main(
         console.print(f"— Wrote {cfg.relative_to(PKG)} -> {root_path}")
 
     # 5. API keys for SELECTED sources -> .env (what optional_token() reads)
-    plate_data = config.load_sources(root_path)
+    plate_data = config.load_sources()
     disabled = set((plate_data.get("run") or {}).get("disable") or [])
     selected_pairs = [(k, tok) for k, _, tok in catalog if k not in disabled]
     needed = sorted({tok for _, tok in selected_pairs if tok != "keyless"})

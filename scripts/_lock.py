@@ -15,18 +15,13 @@ from pathlib import Path
 from typing import Iterator
 
 from filelock import FileLock
-from filelock import Timeout as _Timeout
 
 from paths import data_root
 
-__all__ = ["file_lock", "store_lock", "TimeoutError"]
+__all__ = ["file_lock", "store_lock"]
 
 #: Default seconds to wait before giving up.
 DEFAULT_TIMEOUT = 10.0
-
-#: filelock.Timeout subclasses TimeoutError; alias it so callers that
-#: caught the old vendored TimeoutError keep working.
-TimeoutError = _Timeout  # unused: no caller catches this (the vendored flock it protected is gone)
 
 
 def _locks_dir() -> Path:

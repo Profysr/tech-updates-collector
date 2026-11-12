@@ -1,7 +1,6 @@
 """collectors/launches.py — Product Hunt (optional token) + YC directory Algolia."""
-from util import json_get, make_item, optional_token
+from util import json_get, make_item, optional_token, post_json
 
-YC = "https://ycsearch.startupschool.com/api/v1/companies"  # unused: collect_yc calls the yc-oss URL below (old host no longer resolves)
 PH_GQL = "https://api.producthunt.com/v2/api/graphql"
 
 
@@ -34,15 +33,8 @@ def collect_product_hunt(limit: int = 10) -> list[dict]:
     if not token:
         raise PermissionError("no PRODUCTHUNT_TOKEN — PH coverage unknown this run")
     query = "{ posts(first: %d, order: VOTES) { edges { node { name tagline url votesCount createdAt } } } }" % limit
-    # duplicate: same urllib JSON POST as github.urllib_request_json
-    import json
-    import urllib.request
-    req = urllib.request.Request(
-        PH_GQL,
-        data=json.dumps({"query": query}).encode(),
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"})
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        data = json.loads(resp.read().decode())
+    data = post_json(PH_GQL, {"query": query},
+                     {"Authorization": f"Bearer {token}"})
     out = []
     for edge in data.get("data", {}).get("posts", {}).get("edges", []):
         n = edge.get("node", {})

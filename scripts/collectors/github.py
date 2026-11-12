@@ -2,14 +2,12 @@
 
 60 req/hr unauth; optional GITHUB_TOKEN lifts to 5,000/hr [verified].
 """
-import re
-
 from bs4 import BeautifulSoup
 
 import github as gh_module
-from github import Github, GithubException, RateLimitExceededException
+from github import Github
 
-from util import http_get, make_item, optional_token
+from util import USER_AGENT, http_get, make_item, optional_token, post_json
 
 PER_PAGE_DEFAULT = 30
 
@@ -26,8 +24,7 @@ def _client() -> Github:
         auth = gh_module.Auth.Token(tok)
     else:
         auth = None
-    return Github(auth=auth, per_page=PER_PAGE_DEFAULT,
-                  user_agent="tech-trends-collector/0.1 (personal research; keyless)")  # duplicate: same string as util.USER_AGENT
+    return Github(auth=auth, per_page=PER_PAGE_DEFAULT, user_agent=USER_AGENT)
 
 
 def collect_search_7d(days: int = 7, limit: int = 15) -> list[dict]:
@@ -141,43 +138,6 @@ def collect_trending_developers() -> list[dict]:
 def collect_quality_gate_probe() -> list[dict]:
     """Group E: OSV keyless POST sanity probe (api.osv.dev [V]).
     Queries one well-known repo; returns [] on success (probe semantics)."""
-    urllib_request_json("https://api.osv.dev/v1/query",
-                        {"package": {"name": "requests", "ecosystem": "PyPI"}})
+    post_json("https://api.osv.dev/v1/query",
+              {"package": {"name": "requests", "ecosystem": "PyPI"}})
     return []
-
-
-def quality_gate_check(items: list[dict]) -> list[dict]:  # unused: no callers — only collect_quality_gate_probe is wired into collect.py
-    """Group E filter: flag package candidates with OSV advisories (best-effort,
-    keyless). GitHub repo links are skipped (OSV indexes packages by
-    ecosystem, not by GitHub org/name)."""
-    for it in items:
-        link = it.get("link", "")
-        name = None
-        ecosystem = None
-        if "pypi.org/project/" in link:
-            name = link.split("pypi.org/project/", 1)[1].rstrip("/")
-            ecosystem = "PyPI"
-        elif "npmjs.com/package/" in link:
-            name = link.rsplit("/package/", 1)[-1].rstrip("/")
-            ecosystem = "npm"
-        if not name:
-            continue
-        try:
-            data = urllib_request_json(
-                "https://api.osv.dev/v1/query",
-                {"package": {"name": name, "ecosystem": ecosystem}})
-            if data.get("vulns"):
-                it["extra"] = (it.get("extra", "") + " | OSV advisory present").strip(" |")
-                it["gate_rejected"] = True
-        except Exception:
-            pass  # gate is best-effort; gate failure never blocks an item
-    return items
-
-
-def urllib_request_json(url: str, payload: dict) -> dict:
-    import json
-    import urllib.request
-    req = urllib.request.Request(url, data=json.dumps(payload).encode(),
-                                 headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read().decode())

@@ -64,10 +64,8 @@ def main(argv: list[str]) -> int:
 
     probe_only = "--probe" in argv
     health_only = "--health" in argv
-    # Data root: TECH_UPDATES_ROOT env -> store.config.json -> <project>/tech-updates.
-    root = util.store_root()  # delegates to paths.data_root()
     try:
-        sources = config.load_sources(root)
+        sources = config.load_sources()
     except config.ConfigError as e:
         print(f"Config error: {e}", file=sys.stderr)
         return 1

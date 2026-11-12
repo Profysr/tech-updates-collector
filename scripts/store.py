@@ -20,7 +20,6 @@ import _lock
 import _textio as textio
 import paths
 from util import item_key  # noqa: F401
-from util import store_root  # noqa: F401  (re-exported for collect.py)
 
 CURSORS = "state/cursors.db"  # legacy text file: state/cursors.txt (imported once)
 BUSY_TIMEOUT_MS = 30_000
@@ -141,10 +140,6 @@ def filter_new(items: list[dict], cursors: dict, source_key: str) -> list[dict]:
     return out
 
 
-def record_seen(source_key: str, items: list[dict]) -> dict[str, str]:  # unused: no callers (collect.py builds seen_updates inline)
-    return {seen_key(read_cursors(), source_key, it): it["fetched_at"] for it in items}
-
-
 def watermark_key(source_key: str) -> str:
     return f"wm.{source_key}"
 
@@ -159,7 +154,7 @@ def today() -> str:
 
 def write_inbox(items: list[dict], coverage_lines: list[str]) -> Path:
     """Raw capture, one file per run. Machine-written; never edited after."""
-    root = store_root()
+    root = paths.data_root()
     inbox = root / "runs"
     inbox.mkdir(parents=True, exist_ok=True)
     with _lock.store_lock():
@@ -196,7 +191,7 @@ def write_sources(items: list[dict]) -> int:
     """Deduped survivors -> sources/YYYY-MM-DD/, provenance lines, append-only."""
     if not items:
         return 0
-    day_dir = store_root() / "runs" / "sources" / today()
+    day_dir = paths.data_root() / "runs" / "sources" / today()
     day_dir.mkdir(parents=True, exist_ok=True)
     by_source: dict[str, list[dict]] = {}
     for it in items:

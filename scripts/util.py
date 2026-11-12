@@ -19,7 +19,7 @@ USER_AGENT = "tech-trends-collector/0.1 (personal research; keyless)"
 DEFAULT_TIMEOUT = 30
 
 
-def store_root() -> Path:  # duplicate: pass-through over paths.data_root — call that directly
+def store_root() -> Path:
     """Store root for RAW pipeline data (runs, sources, run log).
 
     Resolved by ``paths.py`` (TECH_UPDATES_ROOT env -> store.config.json
@@ -57,6 +57,16 @@ def http_get(url: str, headers: dict | None = None, timeout: int = DEFAULT_TIMEO
 
 def json_get(url: str, headers: dict | None = None) -> dict | list:
     return json.loads(http_get(url, headers))
+
+
+def post_json(url: str, payload: dict, headers: dict | None = None) -> dict:
+    """POST a JSON body (urllib, 30s) — GETs go through http_get/json_get."""
+    import urllib.request
+    req = urllib.request.Request(
+        url, data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json", **(headers or {})})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return json.loads(resp.read().decode())
 
 
 # Keyring service name for all tech-updates tokens.

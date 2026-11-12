@@ -1,7 +1,6 @@
 """collectors/chatter.py — Reddit RSS (RSS only), dev.to, Lobsters, vendor RSS."""
-import urllib.parse
-
 from collectors.feeds import collect_rss
+from util import make_item
 
 REDDIT_FEEDS = {
     "reddit.rLocalLLaMA": "https://www.reddit.com/r/LocalLLaMA/.rss",
@@ -43,24 +42,14 @@ def collect_other(limit: int = 15) -> list[dict]:
     for key, url in OTHER_FEEDS.items():
         out += collect_rss(key, url, limit)
     data = json_get_devto(limit)
-    # duplicate: hand-rolled make_item — and fetched_at is "" (make_item stamps it)
     for a in data:
-        out.append({
-            "source": "devto.top7",
-            "title": (a.get("title") or "").strip()[:200],
-            "link": a.get("url") or a.get("path", ""),
-            "engagement": f"{a.get('positive_reactions_count', 0)} reactions / {a.get('comments_count', 0)} comments",
-            "published": a.get("published_at", ""),
-            "fetched_at": "",
-            "extra": "",
-        })
+        out.append(make_item(
+            "devto.top7", a.get("title") or "", a.get("url") or a.get("path", ""),
+            engagement=f"{a.get('positive_reactions_count', 0)} reactions / {a.get('comments_count', 0)} comments",
+            published=a.get("published_at", "")))
     return [i for i in out if i["link"]]
 
 
 def json_get_devto(limit: int):
     from util import json_get
     return json_get(f"https://dev.to/api/articles?top=7&per_page={limit}")
-
-
-def reddit_search_feed(subreddit: str, query: str) -> str:  # unused: no callers, and the subreddit arg is ignored anyway
-    return f"https://www.reddit.com/search.rss?q={urllib.parse.quote(query)}&sort=new"
